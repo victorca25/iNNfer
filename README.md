@@ -138,3 +138,42 @@ And you will obtain a version of the upscale that more closely matches the color
 </p>
 
 This flag will work, even if multiple models are chained.
+
+
+# How to help
+
+There are multiple ways to help this project. The first one is by using it and trying to train your own models. You can open an [issue](https://github.com/victorca25/BasicSR/issues) if you find any bugs or start a [discussion](https://github.com/victorca25/BasicSR/discussions) if you have ideas, questions or would like to showcase your results.
+
+If you would like to contribute in the form of adding or fixing code, you can do so be cloning this repo and creating a [PR](https://github.com/victorca25/BasicSR/pulls).
+
+You can also join the [discord servers](#additional-Help) and share results and questions with other users.
+
+Lastly, after it has been suggested many times before, now there are options to donate to show your support to the project and help stir it in directions that will make it even more useful. Below you will find those options that were suggested.
+
+<p align="left">
+   <a href="https://patreon.com/victorca25">
+      <img src="https://github.githubassets.com/images/modules/site/icons/funding_platforms/patreon.svg" height="30">
+      Patreon
+   </a>
+</p>
+
+<p align="left">
+   <a href="https://user-images.githubusercontent.com/41912303/121814560-fba1fc80-cc71-11eb-9b98-17c3ce0f06d6.png">
+      <img src="https://user-images.githubusercontent.com/41912303/121814516-ca293100-cc71-11eb-9ddf-ffda840cd36d.png" height="30">
+      <img src="https://user-images.githubusercontent.com/41912303/121814560-fba1fc80-cc71-11eb-9b98-17c3ce0f06d6.png" height="30">
+   </a>
+   Bitcoin Address: 1JyWsAu7aVz5ZeQHsWCBmRuScjNhCEJuVL
+</p>
+
+<p align="left">
+   <a href="https://user-images.githubusercontent.com/41912303/121814692-aa463d00-cc72-11eb-99b2-c1bae3f63fdc.png">
+      <img src="https://user-images.githubusercontent.com/41912303/121814599-36a43000-cc72-11eb-974a-146661e5e665.png" height="30">
+      <img src="https://user-images.githubusercontent.com/41912303/121814692-aa463d00-cc72-11eb-99b2-c1bae3f63fdc.png" height="30">
+   </a>
+   Ethereum Address: 0xa26AAb3367D34457401Af3A5A0304d6CbE6529A2
+</p>
+
+* * *
+## Additional Help
+
+If you have any questions, we have a couple of discord servers ([game upscale](https://discord.gg/nbB4A5F) and [animation upscale](https://discord.gg/vMaeuTEPh9)) where you can ask them and a [Wiki](https://upscale.wiki/) with more information.
