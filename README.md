@@ -12,17 +12,16 @@ Below is a (non-comprehensive) list of features currently available in the proje
 -   Support for all super-resolution and restoration models available in BasicSR, like: `ESRGAN` (`RRDB`, both original and modified architectures), `SRGAN` (`SRResNet`), `PPON`, and `PAN`. (`SRFlow` is pending).
 -   "Chop forward" option, to automatically divide large images to smaller crops to prevent `CUDA` errors due to exhausted `VRAM`.
 -   Automatic inference of model scale, either from the model name (for example: `4x_PPON_CGP4.pth` will be interpreted as scale `4`) or from the network configuration (currently only for `ESRGAN`, others planned). If the scale cannot be infered, you can use the scale flag with the scale factor, like: `-scale 4`.
--   Automatic inference of model architecture (for super-resolution and restoration at the moment, others planned). Mening that, for example, `ESRGAN`, `PPON` and `PAN` models can be chained with no additional requirement. The exact architecture can also be provided, specially if not using a default network configuration.
+-   Automatic inference of model architecture (for super-resolution and restoration at the moment, others planned). Meaning that, for example, `ESRGAN`, `PPON` and `PAN` models can be chained with no additional requirement. The exact architecture can also be provided, specially if not using a default network configuration.
 -   Model chaining, to pass the input images through a sequence of models.
 -   Direct support for Stochastic Weight Averaging (SWA) models. Will automatically be converted to a regular model.
 -   Support for image to image translation models: `pix2pix` (`UNet`) and `CycleGAN` (`ResNet`).
--   Support for `TorchScript` models. Use flag `-arch ts` (can not be chained yet).
+-   Support for `TorchScript` models. Use flag `-arch ts` (can't be chained yet).
 -   Automatic color correction, for models that modify the color hues when applied. Use flag `-cf`.
--   Use of `fp16` format to reduce memory requirements. Technically, this operates with less accuracy than the default `fp32`, but for all tests so far, the errors where imperceptible. If you suspect any issue, fp16 can be disabled with the `-no_fp16` flag.
+-   Use of `fp16` format to reduce memory requirements. Technically, this operates with less accuracy than the default `fp32`, but for all tests so far, the errors were imperceptible. If you suspect any issue, fp16 can be disabled with the `-no_fp16` flag.
 -   Runs on NVidia GPUs if available by default or on CPU. Can also force to CPU with the flag `-cpu`.
 -   Partial model name support. You don't need to use the models' full names, only part of the name that identifies it as different from others.
 -   Option to do a side by side comparison of the input images to the output results with the `-comp` flag.
-
 
 ## Planned features
 
@@ -31,7 +30,6 @@ Below is a (non-comprehensive) list of features currently available in the proje
 -   Additional color correction alternatives.
 -   Photograph restoration pipeline.
 -   Add Colab Notebook.
-
 
 ## Example simple usage
 
@@ -59,7 +57,7 @@ To chain multiple models, you need to provide a sequence of model names to the `
 python run.py -m jpeg+fatal
 ```
 
-Note that there's technically no limit to how many models can be chained, but if the models are for upscaling, iamge sizes can become impossible to manage in memory. This is mostly a hardware limitation. You can also chain the same model multiple times to the images, which can produce interesting results in some cases.
+Note that there's technically no limit to how many models can be chained, but if the models are for upscaling, image sizes can become impossible to manage in memory. This is mostly a hardware limitation. You can also chain the same model multiple times to the images, which can produce interesting results in some cases.
 
 ### Image to image to image translation
 
@@ -90,7 +88,7 @@ python run.py -m facade -a unet_256 -comp
 Similarly, to test the `ukiyoe` CycleGAN model (either `photo2ukiyoe.pth` or `style_ukiyoe.pth`), with a comparison run:
 
 ```bash
-python run.py -m facade -a unet_256 -comp
+python run.py -m ukiyoe -a resnet_9blocks -comp
 ```
 
 <p align="center">
