@@ -1,5 +1,4 @@
 # iNNfer
-Simple inference codes for AI models.
 
 This is a companion repository to [BasicSR](https://github.com/victorca25/BasicSR), in order to more easily produce results with models trained with it.
 
@@ -59,7 +58,7 @@ python run.py -m jpeg+fatal
 
 Note that there's technically no limit to how many models can be chained, but if the models are for upscaling, image sizes can become impossible to manage in memory. This is mostly a hardware limitation. You can also chain the same model multiple times to the images, which can produce interesting results in some cases.
 
-### Image to image to image translation
+### Image to image translation
 
 For these cases, for now you'll need to provide the network architecture used to train the model. For example, from the [trained](https://github.com/victorca25/BasicSR/blob/master/docs/pretrained.md) model available for `pix2pix` and `CycleGAN`, that will correspond to `unet_256` and `resnet_9blocks` for the `CycleGAN` case.
 
@@ -142,9 +141,9 @@ This flag will work, even if multiple models are chained.
 
 # How to help
 
-There are multiple ways to help this project. The first one is by using it and trying to train your own models. You can open an [issue](https://github.com/victorca25/BasicSR/issues) if you find any bugs or start a [discussion](https://github.com/victorca25/BasicSR/discussions) if you have ideas, questions or would like to showcase your results.
+There are multiple ways to help this project. The first one is by using it and trying to produce results with your models. You can open an [issue](https://github.com/victorca25/iNNfer/issues) if you find any bugs or if you have ideas or questions.
 
-If you would like to contribute in the form of adding or fixing code, you can do so be cloning this repo and creating a [PR](https://github.com/victorca25/BasicSR/pulls).
+If you would like to contribute in the form of adding or fixing code, you can do so be cloning this repo and creating a [PR](https://github.com/victorca25/iNNfer/pulls).
 
 You can also join the [discord servers](#additional-Help) and share results and questions with other users.
 
