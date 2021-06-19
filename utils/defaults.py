@@ -50,6 +50,21 @@ def get_network_G_config(network_G, scale):
         full_network_G['nf'] = network_G.pop('nf', 64)  # number of filters in the first conv layer
         full_network_G['nb'] = network_G.pop('nb', 24)  # number of RRDB blocks
         full_network_G['gc'] = network_G.pop('gc', 32)  #
+    elif kind_G in ('sr_resnet', 'srresnet', 'srgan'):
+        # SRGAN:
+        full_network_G['type'] = "sr_resnet"  # SRResNet
+        full_network_G['in_nc'] = network_G.pop('in_nc', 3) # num. of input image channels: 3 for RGB and 1 for grayscale
+        full_network_G['out_nc'] = network_G.pop('out_nc', 3) # num. of output image channels: 3 for RGB and 1 for grayscale
+        full_network_G['nf'] = network_G.pop('nf', 64)  # number of filters in the first conv layer
+        full_network_G['nb'] = network_G.pop('nb', 16)  # number of RRDB blocks
+        full_network_G['upscale'] = network_G.pop('scale', scale)
+        full_network_G['norm_type'] = network_G.pop('norm_type', None)  # "instance" normalization, "batch" normalization or no norm
+        full_network_G['act_type'] = network_G.pop('net_act', None) or network_G.pop('act_type', "relu")  # swish | relu | leakyrelu
+        full_network_G['mode'] = network_G.pop('mode', "CNA")  # CNA: conv->norm->act, NAC: norm->act->conv
+        full_network_G['upsample_mode'] = network_G.pop('upsample_mode', "pixelshuffle") # the type of upsample to use
+        full_network_G['convtype'] = network_G.pop('convtype', "Conv2D")  # Conv2D | PartialConv2D | DeformConv2D | Conv3D
+        full_network_G['finalact'] = network_G.pop('finalact', None)  # Activation function, ie use "tanh" to make outputs fit in [-1, 1] range. Default = None. Coordinate with znorm.
+        full_network_G['res_scale'] = network_G.pop('res_scale', 1)
     elif 'ppon' in kind_G:
         # PPON:
         full_network_G['type'] = "ppon"  # RRDB_net (original ESRGAN arch)
@@ -73,14 +88,14 @@ def get_network_G_config(network_G, scale):
         full_network_G['double_scpa'] = network_G.pop('double_scpa', False)
         full_network_G['ups_inter_mode'] = network_G.pop('ups_inter_mode', "nearest")
     # image to image translation
-    elif 'unet' in kind_G:
+    elif 'unet' in kind_G or 'p2p' in kind_G:
         #UNET:
         full_network_G['type'] = "unet_net"
         full_network_G['input_nc'] = network_G.pop('in_nc', 3) # # of input image channels: 3 for RGB and 1 for grayscale
         full_network_G['output_nc'] = network_G.pop('out_nc', 3) # # of output image channels: 3 for RGB and 1 for grayscale
-        if kind_G == 'unet_128':
+        if kind_G in ('unet_128', 'p2p_128'):
             full_network_G['num_downs'] = network_G.pop('num_downs', 7) # for 'unet_128' (for 128x128 input images)
-        elif kind_G == 'unet_256':
+        elif kind_G in ('unet_256', 'p2p_256'):
             full_network_G['num_downs'] = network_G.pop('num_downs', 8) # for 'unet_256' (for 256x256 input images)
         else:
             full_network_G['num_downs'] = network_G.pop('num_downs', 8) #7 for 'unet_128' (for 128x128 input images) | 8 for 'unet_256' (for 256x256 input images)
@@ -97,14 +112,14 @@ def get_network_G_config(network_G, scale):
         #TODO: add:
         # full_network_G['dropout_prob'] = network_G.pop('dropout_prob', 0.5) # the default dropout probability
         full_network_G['upsample_mode'] = network_G.pop('upsample_mode', "deconv") # deconv | upconv # the type of upsample to use, deconvolution or upsample+convolution
-    elif 'resnet' in kind_G and kind_G != 'sr_resnet':
+    elif ('resnet' in kind_G and kind_G != 'sr_resnet') or 'cg' in kind_G:
         #RESNET:
         full_network_G['type'] = "resnet_net"
         full_network_G['input_nc'] = network_G.pop('in_nc', 3) # # of input image channels: 3 for RGB and 1 for grayscale
         full_network_G['output_nc'] = network_G.pop('out_nc', 3) # # of output image channels: 3 for RGB and 1 for grayscale
-        if kind_G in ('resnet_6blocks', 'resnet_6'):
+        if kind_G in ('resnet_6blocks', 'resnet_6', 'cg_6'):
             full_network_G['n_blocks'] = network_G.pop('n_blocks', 6)  # 6 for resnet_6blocks (with 6 Resnet blocks) and
-        elif kind_G in ('resnet_9blocks', 'resnet_9'):
+        elif kind_G in ('resnet_9blocks', 'resnet_9', 'cg9'):
             full_network_G['n_blocks'] = network_G.pop('n_blocks', 9)  # 9 for resnet_9blocks (with 9 Resnet blocks)
         else:
             full_network_G['n_blocks'] = network_G.pop('n_blocks', 9)  # 6 for resnet_6blocks (with 6 Resnet blocks) and 9 for resnet_9blocks (with 9 Resnet blocks)

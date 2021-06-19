@@ -60,12 +60,12 @@ Note that there's technically no limit to how many models can be chained, but if
 
 ### Image to image translation
 
-For these cases, for now you'll need to provide the network architecture used to train the model. For example, from the [trained](https://github.com/victorca25/BasicSR/blob/master/docs/pretrained.md) model available for `pix2pix` and `CycleGAN`, that will correspond to `unet_256` and `resnet_9blocks` for the `CycleGAN` case.
+For these cases, for now you'll need to provide the network architecture used to train the model. For example, from the [trained](https://github.com/victorca25/BasicSR/blob/master/docs/pretrained.md) model available for `pix2pix` and `CycleGAN`, that will correspond to `unet_256` (or `p2p_256`) and `resnet_9blocks` (or `cg_9`) for the `CycleGAN` case.
 
 For example, to try out the `label2facade` model (`facades_label2photo.pth`), you need to run:
 
 ```bash
-python run.py -m facade -a unet_256
+python run.py -m facade -a p2p_256
 ```
 
 This will produce a single result:
@@ -77,7 +77,7 @@ This will produce a single result:
 For a side by side comparison between input and output, add the `-comp` flag:
 
 ```bash
-python run.py -m facade -a unet_256 -comp
+python run.py -m facade -a p2p_256 -comp
 ```
 
 <p align="center">
@@ -87,7 +87,7 @@ python run.py -m facade -a unet_256 -comp
 Similarly, to test the `ukiyoe` CycleGAN model (either `photo2ukiyoe.pth` or `style_ukiyoe.pth`), with a comparison run:
 
 ```bash
-python run.py -m ukiyoe -a resnet_9blocks -comp
+python run.py -m ukiyoe -a cg_9 -comp
 ```
 
 <p align="center">

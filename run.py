@@ -51,6 +51,9 @@ class Model:
                 if 'SCPA_trunk.0.conv1_a.weight' in state_dict:
                     # pan model
                     self.arch = 'pan'
+                elif 'model.1.sub.0.res.0.weight' in state_dict:
+                    # srgan
+                    self.arch = 'srgan'
                 elif 'conv_first.weight' in state_dict:
                     # self.arch = 'mesrgan'
                     # convert msergan to esrgan
@@ -69,7 +72,7 @@ class Model:
                     self.scale = 1
                 net_params = get_network_G_config(self.arch, self.scale)
 
-            # defibe network
+            # define network
             net = get_network(net_params)
 
             # load state dict, set to eval and stop grad
@@ -85,11 +88,12 @@ class Model:
 
     def infer_params(self, state_dict):
         # extract model information
-        if self.arch == 'esrgan':
+        if self.arch in ('esrgan', 'srgan'):
             scale2x = 0
             scalemin = 6
             n_uplayer = 0
-            plus = False
+            if self.arch == 'esrgan':
+                plus = False
 
             #TODO
             # print(list(state_dict))
@@ -98,7 +102,7 @@ class Model:
                 parts = block.split(".")
                 n_parts = len(parts)
                 if n_parts == 5 and parts[2] == "sub":
-                    # num. rrdb blocks from last conv. layer before upscales
+                    # num. rrdb (or res) blocks from last conv. layer before upscales
                     nb = int(parts[3])
                 elif n_parts == 3:
                     # upscale blocks
@@ -112,8 +116,9 @@ class Model:
                         # fetch out_nc from last layer shape
                         n_uplayer = part_num
                         out_nc = state_dict[block].shape[0]
-                if not plus and "conv1x1" in block:
-                    plus = True
+                if self.arch == 'esrgan':
+                    if not plus and "conv1x1" in block:
+                        plus = True
             nf = state_dict["model.0.weight"].shape[0]
             self.in_nc = state_dict["model.0.weight"].shape[1]
             self.out_nc = out_nc
@@ -125,8 +130,9 @@ class Model:
                 'out_nc': self.out_nc,
                 'nf': nf,
                 'nb': nb,
-                'plus': plus,
             }
+            if self.arch == 'esrgan':
+                net_dict['plus'] = plus
         elif self.arch in ['ppon', 'pan']:
             # custom params inference TBD
             net_dict = {
@@ -317,7 +323,7 @@ def main():
     else:
         fp16 = args.no_fp16 and gpu
 
-    if 'unet_' in args.arch:
+    if 'unet_' in args.arch or 'p2p_' in args.arch:
         defaults = pix2pix_extras
         chop = False  # tmp, could chop to unet size
         if '512' in args.arch:
@@ -326,7 +332,7 @@ def main():
             resize = 256
         elif '128' in args.arch:
             resize = 128
-    elif 'resnet_' in args.arch:
+    elif 'resnet_' in args.arch or 'cg_' in args.arch:
         defaults = cyglegan_extras
         chop = True
         resize = False
