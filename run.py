@@ -5,7 +5,7 @@ import torch
 from utils.utils import (mod2normal, get_models_paths, get_images_paths,
                     read_img, np2tensor, tensor2np, color_fix, save_img,
                     save_img_comp, extract_patches_2d, recompose_tensor,
-                    linear_resize, swa2normal)
+                    linear_resize, swa2normal, guided_filter, modcrop)
 from utils.defaults import get_network_G_config
 from architectures import get_network
 
@@ -65,12 +65,26 @@ class Model:
                 elif 'CFEM.0.weight' in state_dict:
                     # ppon model
                     self.arch = 'ppon'
+                elif 'conv_9.weight' in state_dict:
+                    # wbc UNET (TODO: validate)
+                    self.arch = 'wbcunet'
+                else:
+                    raise Exception("Could not infer model parameters.")
                 net_params = self.infer_params(state_dict)
             else:
                 # use defaults
+                net_dict = {}
                 if not self.scale:
                     self.scale = 1
-                net_params = get_network_G_config(self.arch, self.scale)
+                if 'wbcunet' in self.arch and "_tf" in self.arch:
+                    self.arch = self.arch.replace("_tf", "")
+                    net_dict["mode"] = "tf"
+                elif 'wbcunet' in self.arch:
+                    net_dict["mode"] = "pt"
+
+                net_dict['type'] = self.arch
+                net_params = get_network_G_config(
+                    net_dict, self.scale)
 
             # define network
             net = get_network(net_params)
@@ -133,6 +147,13 @@ class Model:
             }
             if self.arch == 'esrgan':
                 net_dict['plus'] = plus
+        elif self.arch == 'wbcunet':
+            self.scale = 1
+            net_dict = {
+                'type': self.arch,
+                'mode': 'pt',  # 'tf'  # TODO
+                'nf': state_dict["conv.weight"].shape[0],
+            }
         elif self.arch in ['ppon', 'pan']:
             # custom params inference TBD
             net_dict = {
@@ -190,8 +211,8 @@ class Model:
     def __call__(self, data):
         if self.chop:
             t_out = self.chop_forward(
-                patch_size=100,
-                step=0.9,
+                patch_size=200,  # 100
+                step=0.5,  # 0.9
                 data=data,)
         else:
             with self.get_torch_ctx():
@@ -323,6 +344,8 @@ def main():
     else:
         fp16 = args.no_fp16 and gpu
 
+    use_guided_filter = False
+    use_modcrop = False
     if 'unet_' in args.arch or 'p2p_' in args.arch:
         defaults = pix2pix_extras
         chop = False  # tmp, could chop to unet size
@@ -336,6 +359,16 @@ def main():
         defaults = cyglegan_extras
         chop = True
         resize = False
+    elif 'wbc' in args.arch or 'wbc' in args.models:
+        if 'tf' in args.arch or 'tf' in args.models:
+            args.arch = "wbcunet_tf"
+        else:
+            args.arch = "wbcunet"
+        defaults = pix2pix_extras
+        chop = False  # True
+        resize = False
+        use_guided_filter = True
+        use_modcrop = True
     else:
         defaults = default_extras
         resize = False
@@ -382,12 +415,18 @@ def main():
         if resize:
             img = linear_resize(img, resize)
 
+        if use_modcrop:
+            img = modcrop(img, 4)
+
         t_img = np2tensor(img, normalize=normalize).to(device)
         t_img = t_img.half() if fp16 else t_img
 
         t_out = t_img.clone()
         for mod in models:
             t_out = mod(t_out)
+            if use_guided_filter:
+                # note: r can be configured here to control details in results
+                t_out = guided_filter(t_img, t_out, r=1, eps=5e-3)
 
         img_out = tensor2np(t_out.detach(), denormalize=normalize)
 

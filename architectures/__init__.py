@@ -29,6 +29,9 @@ def get_network(opt_net):
     elif kind == 'resnet_net':
         from . import ResNet_arch
         net = ResNet_arch.ResnetGenerator
+    elif kind == 'wbcunet_net':
+        from . import WBCNet_arch
+        net = WBCNet_arch.UnetGeneratorWBC
     else:
         raise NotImplementedError('Model [{:s}] not recognized'.format(kind))
 

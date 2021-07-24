@@ -1,6 +1,6 @@
 # iNNfer
 
-This is a companion repository to [BasicSR](https://github.com/victorca25/BasicSR), in order to more easily produce results with models trained with it.
+This is a companion repository to [traiNNer](https://github.com/victorca25/traiNNer), in order to more easily produce results with models trained with it.
 
 Currently, the model architectures supported are for: Super-Resolution, Restoration (denoise, deblur) and image to image translation. Support for the remaining architectures (SRFlow, Video, etc) is planned.
 
@@ -8,13 +8,13 @@ Currently, the model architectures supported are for: Super-Resolution, Restorat
 
 Below is a (non-comprehensive) list of features currently available in the project. More are planned (see below).
 
--   Support for all super-resolution and restoration models available in BasicSR, like: `ESRGAN` (`RRDB`, both original and modified architectures), `SRGAN` (`SRResNet`), `PPON`, and `PAN`. (`SRFlow` is pending).
+-   Support for all super-resolution and restoration models available in traiNNer, like: `ESRGAN` (`RRDB`, both original and modified architectures), `SRGAN` (`SRResNet`), `PPON`, and `PAN`. (`SRFlow` is pending).
 -   "Chop forward" option, to automatically divide large images to smaller crops to prevent `CUDA` errors due to exhausted `VRAM`.
--   Automatic inference of model scale, either from the model name (for example: `4x_PPON_CGP4.pth` will be interpreted as scale `4`) or from the network configuration (currently only for `ESRGAN`, others planned). If the scale cannot be infered, you can use the scale flag with the scale factor, like: `-scale 4`.
+-   Automatic inference of model scale, either from the model name (for example: `4x_PPON_CGP4.pth` will be interpreted as scale `4`) or from the network configuration (currently only for `ESRGAN` and `SRGAN`, others planned). If the scale cannot be infered, you can use the scale flag with the scale factor, like: `-scale 4`.
 -   Automatic inference of model architecture (for super-resolution and restoration at the moment, others planned). Meaning that, for example, `ESRGAN`, `PPON` and `PAN` models can be chained with no additional requirement. The exact architecture can also be provided, specially if not using a default network configuration.
 -   Model chaining, to pass the input images through a sequence of models.
 -   Direct support for Stochastic Weight Averaging (SWA) models. Will automatically be converted to a regular model.
--   Support for image to image translation models: `pix2pix` (`UNet`) and `CycleGAN` (`ResNet`).
+-   Support for image to image translation models: `pix2pix` (`UNet`), `CycleGAN` (`ResNet`) `wbc` (`WBCUnet`).
 -   Support for `TorchScript` models. Use flag `-arch ts` (can't be chained yet).
 -   Automatic color correction, for models that modify the color hues when applied. Use flag `-cf`.
 -   Use of `fp16` format to reduce memory requirements. Technically, this operates with less accuracy than the default `fp32`, but for all tests so far, the errors were imperceptible. If you suspect any issue, fp16 can be disabled with the `-no_fp16` flag.
@@ -25,7 +25,7 @@ Below is a (non-comprehensive) list of features currently available in the proje
 ## Planned features
 
 -   On the fly model interpolation, with automatic model compatibility detection. (Except for TorchScript models)
--   Option to use the Consistency Enforcement Module ([CEM](https://github.com/victorca25/BasicSR/blob/master/codes/models/modules/architectures/CEM/README.md)).
+-   Option to use the Consistency Enforcement Module ([CEM](https://github.com/victorca25/traiNNer/blob/master/codes/models/modules/architectures/CEM/README.md)).
 -   Additional color correction alternatives.
 -   Photograph restoration pipeline.
 -   Add Colab Notebook.
@@ -34,7 +34,7 @@ Below is a (non-comprehensive) list of features currently available in the proje
 
 You need to provide a directory where the `input` images to be processed are located and an `output` where the results will be saved. By default, these directories will be `./input/` and `./output/` respectively, but you can modify those with the `-input` and `-output` flags.
 
-If you obtain a [trained](https://github.com/victorca25/BasicSR/blob/master/docs/pretrained.md) model, either the original from a paper or from the [model database](https://upscale.wiki/wiki/Model_Database), you can place it in the `./models/` directory.
+If you obtain a [trained](https://github.com/victorca25/traiNNer/blob/master/docs/pretrained.md) model, either the original from a paper or from the [model database](https://upscale.wiki/wiki/Model_Database), you can place it in the `./models/` directory.
 
 As an example, if you want to use the `Fatality` model from the database, you will download the model (`4x_Fatality_01_265000_G.pth`) and move it to `./models/`.
 
@@ -60,7 +60,7 @@ Note that there's technically no limit to how many models can be chained, but if
 
 ### Image to image translation
 
-For these cases, for now you'll need to provide the network architecture used to train the model. For example, from the [trained](https://github.com/victorca25/BasicSR/blob/master/docs/pretrained.md) model available for `pix2pix` and `CycleGAN`, that will correspond to `unet_256` (or `p2p_256`) and `resnet_9blocks` (or `cg_9`) for the `CycleGAN` case.
+For these cases, for now you'll need to provide the network architecture used to train the model. For example, from the [trained](https://github.com/victorca25/traiNNer/blob/master/docs/pretrained.md) model available for `pix2pix` and `CycleGAN`, that will correspond to `unet_256` (or `p2p_256`) and `resnet_9blocks` (or `cg_9`) for the `CycleGAN` case.
 
 For example, to try out the `label2facade` model (`facades_label2photo.pth`), you need to run:
 
@@ -93,6 +93,31 @@ python run.py -m ukiyoe -a cg_9 -comp
 <p align="center">
    <img src="https://user-images.githubusercontent.com/41912303/121806039-5c1f4280-cc4e-11eb-8377-62c907039e3a.png" height="200">
 </p>
+
+### White-box cartoonization (WBC)
+
+For WBC, a special case is available, where the original TensorFlow model converted to PyTorch and available in the [pretrained](https://github.com/victorca25/traiNNer/blob/master/docs/pretrained.md) options can be used and produces the same results shown in the original [repo](https://github.com/SystemErrorWang/White-box-Cartoonization), converting photos to anime cartoon style.
+
+<p align="center">
+   <img src="https://user-images.githubusercontent.com/41912303/126866710-d95348f0-9daa-4a07-a9f6-42620d005896.png" height="200">
+</p>
+
+<p align="center">
+   <img src="https://user-images.githubusercontent.com/41912303/126866734-1122f1ae-071e-4abc-bf6a-0950c508862e.png" height="200">
+</p>
+
+The models trained with PyTorch can also be used (here using `wbc.pth`):
+
+<p align="center">
+   <img src="https://user-images.githubusercontent.com/41912303/126866846-b9657c59-5307-40ad-a83b-692232486a2d.png" height="200">
+</p>
+
+And if different models are trained with different representations scales, the resulting models can be interpolated to obtain intermediate results between two of them. For now this can be done with a simple [script](https://github.com/victorca25/traiNNer/blob/master/codes/scripts/net_interp.py), but later this can be done on the fly by iNNfer (TBD).
+
+You can also tweak the Guided Filter component in `run.py` (search for the `note`), and if the `r` is increased, the final output details can be reduced, depending on the expected results. More details about the guided filter are available in the original [paper](https://openaccess.thecvf.com/content_CVPR_2020/papers/Wang_Learning_to_Cartoonize_Using_White-Box_Cartoon_Representations_CVPR_2020_paper.pdf).
+
+If the models are named `wbc*`, the `wbcunet` architecture and configuration will be automatically selected, otherwise add the -arch `wbcunet` flag when running.
+
 
 ### TorchScript models
 

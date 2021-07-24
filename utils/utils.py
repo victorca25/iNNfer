@@ -4,6 +4,7 @@ from os import walk as osw
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from .colors import *
 
 try:
@@ -170,7 +171,7 @@ def np2tensor(img, bgr2rgb=True, data_range=1., normalize=False,
     if not isinstance(img, np.ndarray): #images expected to be uint8 -> 255
         raise TypeError("Got unexpected object type, expected np.ndarray")
 
-    # check how many channels the image has, then condition, like in my BasicSR. ie. RGB, RGBA, Gray
+    # check how many channels the image has, then condition. ie. RGB, RGBA, Gray
     # if bgr2rgb:
     #     img = img[:, :, [2, 1, 0]] #BGR to RGB -> in numpy, if using OpenCV, else not needed. Only if image has colors.
     if change_range:
@@ -245,6 +246,22 @@ def tensor2np(img, rgb2bgr=True, remove_batch=True, data_range=255,
         
     # has to be in range (0,255) before changing to np.uint8, else np.float32
     return img_np.astype(imtype)
+
+
+def modcrop(img_in, scale):
+    # img_in: Numpy, HWC or HW
+    img = np.copy(img_in)
+    if img.ndim == 2:
+        H, W = img.shape
+        H_r, W_r = H % scale, W % scale
+        img = img[:H - H_r, :W - W_r]
+    elif img.ndim == 3:
+        H, W, C = img.shape
+        H_r, W_r = H % scale, W % scale
+        img = img[:H - H_r, :W - W_r, :]
+    else:
+        raise ValueError('Wrong img ndim: [{:d}].'.format(img.ndim))
+    return img
 
 
 def linear_resize(img, st=256):
@@ -426,6 +443,187 @@ def recompose_tensor(patches, height, width, step=None, scale=1):
     recomposed_tensor /= blending_image
 
     return recomposed_tensor
+
+
+def normalize_kernel2d(x: torch.Tensor) -> torch.Tensor:
+    """Normalizes kernel."""
+    if len(x.size()) < 2:
+        raise TypeError("input should be at least 2D tensor. Got {}"
+                        .format(x.size()))
+    norm: torch.Tensor = x.abs().sum(dim=-1).sum(dim=-1)
+    return x / (norm.unsqueeze(-1).unsqueeze(-1))
+
+
+def compute_padding(kernel_size):
+    """ Computes padding tuple. For square kernels, pad can be an
+    int, else, a tuple with an element for each dimension.
+    """
+    # 4 or 6 ints:  (padding_left, padding_right, padding_top, padding_bottom)
+    if isinstance(kernel_size, tuple):
+        kernel_size = list(kernel_size)
+
+    if isinstance(kernel_size, int):
+        return kernel_size//2
+    elif isinstance(kernel_size, list):
+        computed = [k // 2 for k in kernel_size]
+
+        out_padding = []
+
+        for i in range(len(kernel_size)):
+            computed_tmp = computed[-(i + 1)]
+            # for even kernels we need to do asymetric padding
+            if kernel_size[i] % 2 == 0:
+                padding = computed_tmp - 1
+            else:
+                padding = computed_tmp
+            out_padding.append(padding)
+            out_padding.append(computed_tmp)
+        return out_padding
+
+
+def filter2D(x: torch.Tensor, kernel: torch.Tensor,
+             border_type: str = 'reflect', dim: int =2,
+             normalized: bool = False) -> torch.Tensor:
+    r"""Function that convolves a tensor with a kernel.
+    The function applies a given kernel to a tensor. The kernel
+    is applied independently at each depth channel of the tensor.
+    Before applying the kernel, the function applies padding
+    according to the specified mode so that the output remains
+    in the same shape.
+    Args:
+        x: the input tensor with shape of :math:`(B, C, H, W)`.
+        kernel: the kernel to be convolved with the input tensor.
+            The kernel shape must be :math:`(1, kH, kW)`.
+        border_type: the padding mode to be applied before convolving.
+            The expected modes are: ``'constant'``, ``'reflect'``,
+            ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
+        normalized: If True, kernel will be L1 normalized.
+    Return:
+        the convolved tensor of same size and numbers of channels
+            as the input.
+    """
+
+    borders_list: List[str] = ['constant', 'reflect', 'replicate', 'circular']
+    if border_type not in borders_list:
+        raise ValueError("Invalid border_type, we expect the following: {0}."
+                         "Got: {1}".format(borders_list, border_type))
+
+    # prepare kernel
+    b, c, h, w = x.shape
+    tmp_kernel: torch.Tensor = kernel.unsqueeze(0).to(x.device).to(x.dtype)
+    if normalized:
+        tmp_kernel = normalize_kernel2d(tmp_kernel)
+    # pad the input tensor
+    height, width = tmp_kernel.shape[-2:]
+    padding_shape: List[int] = compute_padding((height, width))
+    input_pad: torch.Tensor = F.pad(x, padding_shape, mode=border_type)
+    b, c, hp, wp = input_pad.shape
+
+    tmp_kernel = tmp_kernel.expand(c, -1, -1, -1)
+
+    # convolve the tensor with the kernel.
+    if dim == 1:
+        conv = F.conv1d
+    elif dim == 2:
+        conv = F.conv2d
+    elif dim == 3:
+        conv = F.conv3d
+    else:
+        raise RuntimeError(
+            f"Only 1, 2 and 3 dimensions are supported. Received {dim}.")
+
+    return conv(input_pad, tmp_kernel, groups=c, padding=0, stride=1)
+
+
+def get_box_kernel(kernel_size: int = 5, dim=2):
+    if isinstance(kernel_size,  (int, float)):
+        kernel_size = [kernel_size] * dim
+
+    kx = kernel_size[0]
+    ky = kernel_size[1]
+    box_kernel = torch.Tensor(np.ones((kx, ky)) / (float(kx)*float(ky)))
+
+    return box_kernel
+
+
+def guided_filter(x: torch.Tensor, y: torch.Tensor,
+    x_HR: torch.Tensor = None, ks=None, r=None, eps:float=1e-2,
+    box_kernel=None, mode:str='regular', conv_a=None) -> torch.Tensor:
+    """ Guided filter / FastGuidedFilter function.
+    This is a kind of edge-preserving smoothing filter that can
+    filter out noise or texture while retaining sharp edges. One
+    key assumption of the guided filter is that the relation
+    between guidance x and the filtering output is linear.
+    Arguments:
+        x: guidance image with shape [b, c, h, w].
+        y: filtering input image with shape [b, c, h, w].
+        x_HR: optional high resolution guidance map for joint
+            upsampling (for 'fast' or 'conv' modes).
+        ks (int): kernel size for the box/mean filter. In reference to
+            the window radius "r": kx = ky = ks = (2*r)+1
+        r (int): optional radius for the window. Can use instead of ks.
+        box_kernel (tensor): precalculated box_kernel (optional).
+        mode: select between the guided filter types: 'regular',
+            'fast' or 'conv' (convolutional).
+        conv_a (nn.Sequential): the convolutional layers to use for
+            'conv' mode to calculate the 'A' parameter.
+        eps: regularization ε, penalizing large A values.
+            eps = 1e-8 in the original paper.
+    Returns:
+        output: filtered image
+    """
+
+    if not isinstance(box_kernel, torch.Tensor):
+    # get the box_kernel if not provided
+        if not ks:
+            if r:
+                ks = (2*r)+1
+            else:
+                raise ValueError("Either kernel size (ks) or radius (r) "
+                                 "for the window are required.")
+
+        # mean filter. The window size is defined by the kernel size.
+        box_kernel = get_box_kernel(kernel_size = ks)
+
+    x_shape = x.shape
+    # y_shape = y.shape
+    if isinstance(x_HR, torch.Tensor):
+        x_HR_shape = x_HR.shape
+
+    box_kernel = box_kernel.to(x.device)
+    N = filter2D(torch.ones((1, 1, x_shape[-2], x_shape[-1])),
+        box_kernel).to(x.device)
+
+    # note: similar to SSIM calculation
+    mean_x = filter2D(x, box_kernel) / N
+    mean_y = filter2D(y, box_kernel) / N
+    cov_xy = (filter2D(x*y, box_kernel) / N) - mean_x*mean_y
+    var_x = (filter2D(x*x, box_kernel) / N) - mean_x*mean_x
+
+    # linear coefficients A, b
+    if mode == 'conv':
+        A = conv_a(torch.cat([cov_xy, var_x], dim=1))
+    else:
+        # regular or fast GuidedFilter
+        A = cov_xy / (var_x + eps)
+    b = mean_y - A * mean_x  # according to original GF paper, needs to add: "+ x"
+
+    # mean_A; mean_b
+    if mode == 'fast' or mode == 'conv':
+        mean_A = F.interpolate(
+            A, (x_HR_shape[-2], x_HR_shape[-1]),
+            mode='bilinear', align_corners=True)
+        mean_b = F.interpolate(
+            b, (x_HR_shape[-2], x_HR_shape[-1]),
+            mode='bilinear', align_corners=True)
+        output = mean_A * x_HR + mean_b
+    else:
+        # regular GuidedFilter
+        mean_A = filter2D(A, box_kernel) / N
+        mean_b = filter2D(b, box_kernel) / N
+        output = mean_A * x + mean_b
+
+    return output
 
 
 def normal2mod(state_dict):
