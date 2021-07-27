@@ -112,7 +112,7 @@ The models trained with PyTorch can also be used (here using `wbc.pth`):
    <img src="https://user-images.githubusercontent.com/41912303/126866846-b9657c59-5307-40ad-a83b-692232486a2d.png" height="200">
 </p>
 
-And if different models are trained with different representations scales, the resulting models can be interpolated to obtain intermediate results between two of them. For now this can be done with a simple [script](https://github.com/victorca25/traiNNer/blob/master/codes/scripts/net_interp.py), but later this can be done on the fly by iNNfer (TBD).
+And if different models are trained with different representations scales, the resulting models can be interpolated to obtain intermediate results between two of them. For now this can be done with a simple [script](https://github.com/victorca25/traiNNer/blob/master/codes/scripts/net_interp.py), but later this can be done on the fly by iNNfer (TBD). More information about interpolating models can be found [here](https://github.com/victorca25/traiNNer/wiki/Interpolation)
 
 You can also tweak the Guided Filter component in `run.py` (search for the `note`), and if the `r` is increased, the final output details can be reduced, depending on the expected results. More details about the guided filter are available in the original [paper](https://openaccess.thecvf.com/content_CVPR_2020/papers/Wang_Learning_to_Cartoonize_Using_White-Box_Cartoon_Representations_CVPR_2020_paper.pdf).
 
