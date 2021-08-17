@@ -127,3 +127,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+input/*
+!input/README.md
+models/*
+!models/README.md
+output/*
+!output/README.md
