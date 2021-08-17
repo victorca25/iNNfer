@@ -1,26 +1,31 @@
-import argparse
 import os.path as osp
-import torch
 
+import click
+import torch
+from rich import print
+from rich.traceback import install as install_traceback
+
+from architectures import get_network
+from utils.defaults import get_network_G_config
 from utils.utils import (
-    mod2normal,
-    get_models_paths,
-    get_images_paths,
-    read_img,
-    np2tensor,
-    tensor2np,
     color_fix,
+    extract_patches_2d,
+    get_images_paths,
+    get_models_paths,
+    guided_filter,
+    linear_resize,
+    mod2normal,
+    modcrop,
+    np2tensor,
+    read_img,
+    recompose_tensor,
     save_img,
     save_img_comp,
-    extract_patches_2d,
-    recompose_tensor,
-    linear_resize,
     swa2normal,
-    guided_filter,
-    modcrop,
+    tensor2np,
 )
-from utils.defaults import get_network_G_config
-from architectures import get_network
+
+install_traceback()
 
 
 class nullcast:
@@ -256,7 +261,6 @@ class Model:
 
 
 def parse_models(models_paths, scales_list=None):
-
     model_chain = (
         models_paths.split("+") if "+" in models_paths else models_paths.split(">")
     )
@@ -344,110 +348,143 @@ default_extras = {
 }
 
 
-def main():
+@click.group()
+def cli():
+    pass
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-models", "-m", type=str, required=True, help="Path to models."
-    )
-    parser.add_argument(
-        "-arch",
-        "-a",
-        type=str,
-        required=False,
-        default="infer",
-        help="Model architecture.",
-    )
-    parser.add_argument(
-        "-input",
-        "-i",
-        type=str,
-        required=False,
-        default="./input",
-        help="Path to read input images.",
-    )
-    parser.add_argument(
-        "-output",
-        "-o",
-        type=str,
-        required=False,
-        default="./output",
-        help="Path to save output images.",
-    )
-    parser.add_argument(
-        "-scale",
-        "-s",
-        type=str,
-        required=False,
-        default="-1",
-        help="Model scaling factor.",
-    )
-    parser.add_argument(
-        "-cf",
-        required=False,
-        action="store_true",
-        help="Use color correction if enabled.",
-    )
-    parser.add_argument(
-        "-comp",
-        required=False,
-        action="store_true",
-        help="Save as comparison images if enabled.",
-    )
-    parser.add_argument(
-        "-no_gpu",
-        "-cpu",
-        required=False,
-        action="store_false",
-        help="Run in CPU if enabled.",
-    )
-    parser.add_argument(
-        "-no_fp16",
-        required=False,
-        action="store_false",
-        help="Disable fp16 mode if needed.",
-    )
-    parser.add_argument(
-        "-norm",
-        required=False,
-        action="store_true",
-        help="Normalizes images in range [-1,1] if set, else [0,1].",
-    )
-    args = parser.parse_args()
 
+@cli.command()
+@click.argument(
+    "models",
+    type=str,
+    # nargs=-1,
+)
+# @click.option('--models', default=1, help="Path to models.")
+@click.option(
+    "-a",
+    "--arch",
+    type=str,
+    # TODO Get a list of all available architectures
+    # type=click.Choice(
+    #     [
+    #         "ts",
+    #         "infer",
+    #         "pan",
+    #         "srgan",
+    #         "esrgan",
+    #         "ppon",
+    #         "wbcunet",
+    #         "unet_512",
+    #         "unet_256",
+    #         "unet_128",
+    #         "p2p_512",
+    #         "p2p_256",
+    #         "p2p_128",
+    #         "resnet_net",
+    #         "resnet_6blocks",
+    #         "resnet_6",
+    #     ],
+    #     case_sensitive=False,
+    # ),
+    required=False,
+    default="infer",
+    show_default=True,
+    help="Model architecture.",
+)
+@click.option(
+    "-i",
+    "--input",
+    type=str,
+    required=False,
+    default="./input",
+    help="Path to read input images.",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=str,
+    required=False,
+    default="./output",
+    help="Path to save output images.",
+)
+@click.option(
+    "-s",
+    "--scale",
+    type=int,
+    required=False,
+    default=-1,
+    help="Model scaling factor.",
+)
+@click.option(
+    "-cf",
+    "--color-fix",
+    "color_correction",
+    is_flag=True,
+    help="Use color correction if enabled.",
+)
+@click.option(
+    "--comp",
+    is_flag=True,
+    help="Save as comparison images if enabled.",
+)
+@click.option(
+    "--cpu",
+    is_flag=True,
+    help="Run in CPU if enabled.",
+)
+@click.option("--fp16", is_flag=True, help="Enable fp16 mode if needed.")
+@click.option(
+    "--norm",
+    is_flag=True,
+    help="Normalizes images in range [-1,1] if set, else [0,1].",
+)
+@click.option("-v", "--verbose", count=True, help="Verbosity level (-v, -vv ,-vvv)")
+def image(
+    models: str,
+    arch: str,
+    input: str,
+    output: str,
+    scale: int,
+    color_correction: bool,
+    comp: bool,
+    cpu: bool,
+    fp16: bool,
+    norm: bool,
+    verbose: int,
+):
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
 
     gpu = (
-        args.no_gpu
+        not cpu
     )  # TODO: fp16 error with cpu: RuntimeError: "unfolded2d_copy" not implemented for 'Half'
     # TODO: all these options should be configurable
-    if args.arch == "ts":
+    if arch == "ts":
         # TODO: not working with torchscript unless model was traced with fp16
         fp16 = False  # True
     else:
-        fp16 = args.no_fp16 and gpu
+        fp16 = fp16 and gpu
 
     use_guided_filter = False
     use_modcrop = False
-    if "unet_" in args.arch or "p2p_" in args.arch:
+    if "unet_" in arch or "p2p_" in arch:
         defaults = pix2pix_extras
         chop = False  # tmp, could chop to unet size
-        if "512" in args.arch:
+        if "512" in arch:
             resize = 512
-        elif "256" in args.arch:
+        elif "256" in arch:
             resize = 256
-        elif "128" in args.arch:
+        elif "128" in arch:
             resize = 128
-    elif "resnet_" in args.arch or "cg_" in args.arch:
+    elif "resnet_" in arch or "cg_" in arch:
         defaults = cyglegan_extras
         chop = True
         resize = False
-    elif "wbc" in args.arch or "wbc" in args.models:
-        if "tf" in args.arch or "tf" in args.models:
-            args.arch = "wbcunet_tf"
+    elif "wbc" in arch or "wbc" in models:
+        if "tf" in arch or "tf" in models:
+            arch = "wbcunet_tf"
         else:
-            args.arch = "wbcunet"
+            arch = "wbcunet"
         defaults = pix2pix_extras
         chop = False  # True
         resize = False
@@ -460,7 +497,7 @@ def main():
 
     meval = defaults["meval"]
     strict = defaults["strict"]
-    normalize = defaults["normalize"] or args.norm
+    normalize = defaults["normalize"] or norm
 
     if fp16:
         torch.set_default_tensor_type(
@@ -472,12 +509,12 @@ def main():
         else torch.device("cpu")
     )
 
-    cf = args.cf  # color fix
-    comp = args.comp  # save comparison images
-    model_path = args.models
-    output_dir = args.output
+    cf = color_correction  # color fix
+    comp = comp  # save comparison images
+    model_path = models
+    output_dir = output
     # TODO: chain scales
-    scale = args.scale if args.scale != -1 else None
+    scale = scale if scale != -1 else None
     # TODO: chain archs
 
     model_chain, scale_chain = parse_models(model_path)
@@ -485,12 +522,10 @@ def main():
     models = []
     for mc, sc in zip(model_chain, scale_chain):
         models.append(
-            Model(
-                mc, args.arch, sc, device=device, meval=meval, strict=strict, chop=chop
-            )
+            Model(mc, arch, sc, device=device, meval=meval, strict=strict, chop=chop)
         )
 
-    images = get_images_paths(args.input)
+    images = get_images_paths(input)
 
     for image_path in images:
 
@@ -532,5 +567,10 @@ def main():
             save_img(img_out, save_img_path)
 
 
+@cli.command()
+def video():
+    pass
+
+
 if __name__ == "__main__":
-    main()
+    cli()
