@@ -1,8 +1,17 @@
-import os.path as osp
+import logging
+import sys
+from pathlib import Path
+from typing import List
 
 import click
 import torch
-from rich import print
+from rich import get_console, print
+from rich.logging import RichHandler
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TimeRemainingColumn,
+)
 from rich.traceback import install as install_traceback
 
 from architectures import get_network
@@ -63,12 +72,13 @@ class Model:
         self.eval = meval
         self.strict = strict
         self.chop = chop
-        self.load_model()
+        with get_console().status(f'Loading model [green]"{model_path}"[/]...'):
+            self.load_model()
 
     def load_model(self):
         if self.arch == "ts":
             self.model = (
-                torch.jit.load(osp.join(self.model_path)).eval().to(self.device)
+                torch.jit.load(str(self.model_path.absolute())).eval().to(self.device)
             )
         else:
             state_dict = torch.load(self.model_path)
@@ -260,12 +270,12 @@ class Model:
         return t_out
 
 
-def parse_models(models_paths, scales_list=None):
+def parse_models(models_paths: str, scales_list=None):
     model_chain = (
         models_paths.split("+") if "+" in models_paths else models_paths.split(">")
     )
 
-    all_models = get_models_paths("./models")
+    all_models = get_models_paths(Path("./models"))
 
     full_chain = []
     for model_path in model_chain:
@@ -287,11 +297,11 @@ def parse_models(models_paths, scales_list=None):
     return full_chain, scales_list
 
 
-def check_model_path(model_path, all_models=None):
+def check_model_path(model_path: str, all_models: List[Path] = None):
     # check if model exists in absolute path or ./models
-    if not osp.isfile(model_path):
-        model_path_a = osp.join("models", model_path)
-        if not osp.isfile(model_path_a):
+    if not Path(model_path).is_file():
+        model_path_a = Path("models").joinpath(model_path)
+        if not model_path_a.is_file():
             # partial name search in ./models
             if all_models:
                 m_list = []
@@ -311,11 +321,11 @@ def check_model_path(model_path, all_models=None):
     return model_path
 
 
-def get_scale_name(model_path, scale=None):
-    """ try to get model scale from model name"""
+def get_scale_name(model_path: Path, scale=None):
+    """try to get model scale from model name"""
 
     rlt_scale = None
-    scale_name = str(osp.basename(model_path)[0:2]).lower()
+    scale_name = model_path.stem[0:2].lower()
     if "x" in scale_name:
         try:
             rlt_scale = int(scale_name.replace("x", ""))
@@ -359,7 +369,6 @@ def cli():
     type=str,
     # nargs=-1,
 )
-# @click.option('--models', default=1, help="Path to models.")
 @click.option(
     "-a",
     "--arch",
@@ -394,17 +403,19 @@ def cli():
 @click.option(
     "-i",
     "--input",
-    type=str,
+    type=Path,
     required=False,
-    default="./input",
+    default=Path("./input"),
+    show_default=True,
     help="Path to read input images.",
 )
 @click.option(
     "-o",
     "--output",
-    type=str,
+    type=Path,
     required=False,
-    default="./output",
+    default=Path("./output"),
+    show_default=True,
     help="Path to save output images.",
 )
 @click.option(
@@ -438,26 +449,40 @@ def cli():
     is_flag=True,
     help="Normalizes images in range [-1,1] if set, else [0,1].",
 )
-@click.option("-v", "--verbose", count=True, help="Verbosity level (-v, -vv ,-vvv)")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    # count=True,
+    # help="Verbosity level (-v, -vv ,-vvv)",
+)
 def image(
     models: str,
     arch: str,
-    input: str,
-    output: str,
+    input: Path,
+    output: Path,
     scale: int,
     color_correction: bool,
     comp: bool,
     cpu: bool,
     fp16: bool,
     norm: bool,
-    verbose: int,
+    verbose: bool,
 ):
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(markup=True)],
+    )
+    log = logging.getLogger()
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
 
     gpu = (
         not cpu
     )  # TODO: fp16 error with cpu: RuntimeError: "unfolded2d_copy" not implemented for 'Half'
+
     # TODO: all these options should be configurable
     if arch == "ts":
         # TODO: not working with torchscript unless model was traced with fp16
@@ -525,46 +550,59 @@ def image(
             Model(mc, arch, sc, device=device, meval=meval, strict=strict, chop=chop)
         )
 
-    images = get_images_paths(input)
+    try:
+        images = get_images_paths(input)
+    except AssertionError as e:
+        log.error(e)
+        sys.exit(1)
 
-    for image_path in images:
+    with Progress(
+        # SpinnerColumn(),
+        "[progress.description]{task.description}",
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeRemainingColumn(),
+    ) as progress:
+        task_upscaling = progress.add_task("Upscaling", total=len(images))
+        for image_path in images:
+            log.info(f'Upscaling "{image_path.name}"')
+            img = read_img(image_path)
 
-        img_name = osp.splitext(osp.basename(image_path))[0]
-        img = read_img(image_path)
+            # if not isinstance(img, np.ndarray):
+            if img is None:
+                log.warning(f'Error reading image "{image_path}", skipping.')
+                progress.advance(task_upscaling)
+                continue
 
-        # if not isinstance(img, np.ndarray):
-        if img is None:
-            print(f"Error reading image {image_path}, skipping.")
-            continue
+            # TODO: can pad|resize|crop images to next size accepted by network
+            if resize:
+                img = linear_resize(img, resize)
 
-        # TODO: can pad|resize|crop images to next size accepted by network
-        if resize:
-            img = linear_resize(img, resize)
+            if use_modcrop:
+                img = modcrop(img, 4)
 
-        if use_modcrop:
-            img = modcrop(img, 4)
+            t_img = np2tensor(img, normalize=normalize).to(device)
+            t_img = t_img.half() if fp16 else t_img
 
-        t_img = np2tensor(img, normalize=normalize).to(device)
-        t_img = t_img.half() if fp16 else t_img
+            t_out = t_img.clone()
+            for mod in models:
+                t_out = mod(t_out)
+                if use_guided_filter:
+                    # note: r can be configured here to control details in results
+                    t_out = guided_filter(t_img, t_out, r=1, eps=5e-3)
 
-        t_out = t_img.clone()
-        for mod in models:
-            t_out = mod(t_out)
-            if use_guided_filter:
-                # note: r can be configured here to control details in results
-                t_out = guided_filter(t_img, t_out, r=1, eps=5e-3)
+            img_out = tensor2np(t_out.detach(), denormalize=normalize)
 
-        img_out = tensor2np(t_out.detach(), denormalize=normalize)
+            if cf:
+                img_out = color_fix(img, img_out)
 
-        if cf:
-            img_out = color_fix(img, img_out)
-
-        # save images
-        save_img_path = osp.join(output_dir, f"{img_name:s}.png")
-        if comp:
-            save_img_comp([img, img_out], save_img_path)
-        else:
-            save_img(img_out, save_img_path)
+            # save images
+            save_img_path = output_dir.joinpath(f"{image_path.stem}.png")
+            if comp:
+                save_img_comp([img, img_out], save_img_path)
+            else:
+                save_img(img_out, save_img_path)
+            progress.advance(task_upscaling)
 
 
 @cli.command()

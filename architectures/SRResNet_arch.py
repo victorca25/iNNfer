@@ -180,7 +180,7 @@ class ResNetBlock(nn.Module):
 
 
 class MSRResNet(nn.Module):
-    """ modified SRResNet"""
+    """modified SRResNet"""
 
     def __init__(self, in_nc=3, out_nc=3, nf=64, nb=16, upscale=4):
         super(MSRResNet, self).__init__()
