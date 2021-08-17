@@ -2,28 +2,52 @@ import argparse
 import os.path as osp
 import torch
 
-from utils.utils import (mod2normal, get_models_paths, get_images_paths,
-                    read_img, np2tensor, tensor2np, color_fix, save_img,
-                    save_img_comp, extract_patches_2d, recompose_tensor,
-                    linear_resize, swa2normal, guided_filter, modcrop)
+from utils.utils import (
+    mod2normal,
+    get_models_paths,
+    get_images_paths,
+    read_img,
+    np2tensor,
+    tensor2np,
+    color_fix,
+    save_img,
+    save_img_comp,
+    extract_patches_2d,
+    recompose_tensor,
+    linear_resize,
+    swa2normal,
+    guided_filter,
+    modcrop,
+)
 from utils.defaults import get_network_G_config
 from architectures import get_network
 
 
-class nullcast():
-    #nullcontext:
+class nullcast:
+    # nullcontext:
     def __init__(self):
         pass
+
     def __enter__(self):
         pass
+
     def __exit__(self, *excinfo):
         pass
 
 
 class Model:
-    def __init__(self, model_path, arch=None, scale=None,
-            in_nc=3, out_nc=3, device='cpu', meval=True,
-            strict=True, chop=True):
+    def __init__(
+        self,
+        model_path,
+        arch=None,
+        scale=None,
+        in_nc=3,
+        out_nc=3,
+        device="cpu",
+        meval=True,
+        strict=True,
+        chop=True,
+    ):
         self.model_path = model_path
         self.arch = arch
         self.scale = scale
@@ -37,37 +61,38 @@ class Model:
         self.load_model()
 
     def load_model(self):
-        if self.arch == 'ts':
-            self.model = torch.jit.load(
-                osp.join(self.model_path)).eval().to(self.device)
+        if self.arch == "ts":
+            self.model = (
+                torch.jit.load(osp.join(self.model_path)).eval().to(self.device)
+            )
         else:
             state_dict = torch.load(self.model_path)
 
             # convert from SWA to regular model if needed
-            if 'n_averaged' in state_dict:
+            if "n_averaged" in state_dict:
                 state_dict = swa2normal(state_dict)
 
-            if self.arch == 'infer':
-                if 'SCPA_trunk.0.conv1_a.weight' in state_dict:
+            if self.arch == "infer":
+                if "SCPA_trunk.0.conv1_a.weight" in state_dict:
                     # pan model
-                    self.arch = 'pan'
-                elif 'model.1.sub.0.res.0.weight' in state_dict:
+                    self.arch = "pan"
+                elif "model.1.sub.0.res.0.weight" in state_dict:
                     # srgan
-                    self.arch = 'srgan'
-                elif 'conv_first.weight' in state_dict:
+                    self.arch = "srgan"
+                elif "conv_first.weight" in state_dict:
                     # self.arch = 'mesrgan'
                     # convert msergan to esrgan
                     state_dict = mod2normal(state_dict)
-                    self.arch = 'esrgan'
-                elif 'model.0.weight' in state_dict:
+                    self.arch = "esrgan"
+                elif "model.0.weight" in state_dict:
                     # regular esrgan
-                    self.arch = 'esrgan'
-                elif 'CFEM.0.weight' in state_dict:
+                    self.arch = "esrgan"
+                elif "CFEM.0.weight" in state_dict:
                     # ppon model
-                    self.arch = 'ppon'
-                elif 'conv_9.weight' in state_dict:
+                    self.arch = "ppon"
+                elif "conv_9.weight" in state_dict:
                     # wbc UNET (TODO: validate)
-                    self.arch = 'wbcunet'
+                    self.arch = "wbcunet"
                 else:
                     raise Exception("Could not infer model parameters.")
                 net_params = self.infer_params(state_dict)
@@ -76,15 +101,14 @@ class Model:
                 net_dict = {}
                 if not self.scale:
                     self.scale = 1
-                if 'wbcunet' in self.arch and "_tf" in self.arch:
+                if "wbcunet" in self.arch and "_tf" in self.arch:
                     self.arch = self.arch.replace("_tf", "")
                     net_dict["mode"] = "tf"
-                elif 'wbcunet' in self.arch:
+                elif "wbcunet" in self.arch:
                     net_dict["mode"] = "pt"
 
-                net_dict['type'] = self.arch
-                net_params = get_network_G_config(
-                    net_dict, self.scale)
+                net_dict["type"] = self.arch
+                net_params = get_network_G_config(net_dict, self.scale)
 
             # define network
             net = get_network(net_params)
@@ -102,14 +126,14 @@ class Model:
 
     def infer_params(self, state_dict):
         # extract model information
-        if self.arch in ('esrgan', 'srgan'):
+        if self.arch in ("esrgan", "srgan"):
             scale2x = 0
             scalemin = 6
             n_uplayer = 0
-            if self.arch == 'esrgan':
+            if self.arch == "esrgan":
                 plus = False
 
-            #TODO
+            # TODO
             # print(list(state_dict))
 
             for block in list(state_dict):
@@ -121,16 +145,18 @@ class Model:
                 elif n_parts == 3:
                     # upscale blocks
                     part_num = int(parts[1])
-                    if (part_num > scalemin
+                    if (
+                        part_num > scalemin
                         and parts[0] == "model"
-                        and parts[2] == "weight"):
+                        and parts[2] == "weight"
+                    ):
                         # num. 2x upsample blocks
                         scale2x += 1
                     if part_num > n_uplayer:
                         # fetch out_nc from last layer shape
                         n_uplayer = part_num
                         out_nc = state_dict[block].shape[0]
-                if self.arch == 'esrgan':
+                if self.arch == "esrgan":
                     if not plus and "conv1x1" in block:
                         plus = True
             nf = state_dict["model.0.weight"].shape[0]
@@ -139,33 +165,33 @@ class Model:
             self.scale = 2 ** scale2x
 
             net_dict = {
-                'type': self.arch,
-                'in_nc': self.in_nc,
-                'out_nc': self.out_nc,
-                'nf': nf,
-                'nb': nb,
+                "type": self.arch,
+                "in_nc": self.in_nc,
+                "out_nc": self.out_nc,
+                "nf": nf,
+                "nb": nb,
             }
-            if self.arch == 'esrgan':
-                net_dict['plus'] = plus
-        elif self.arch == 'wbcunet':
+            if self.arch == "esrgan":
+                net_dict["plus"] = plus
+        elif self.arch == "wbcunet":
             self.scale = 1
             net_dict = {
-                'type': self.arch,
-                'mode': 'pt',  # 'tf'  # TODO
-                'nf': state_dict["conv.weight"].shape[0],
+                "type": self.arch,
+                "mode": "pt",  # 'tf'  # TODO
+                "nf": state_dict["conv.weight"].shape[0],
             }
-        elif self.arch in ['ppon', 'pan']:
+        elif self.arch in ["ppon", "pan"]:
             # custom params inference TBD
             net_dict = {
-                'type': self.arch,
-                'in_nc': self.in_nc,
-                'out_nc': self.out_nc,
+                "type": self.arch,
+                "in_nc": self.in_nc,
+                "out_nc": self.out_nc,
             }
 
         return get_network_G_config(net_dict, self.scale)
 
     def chop_forward(self, data, patch_size=200, step=1.0):
-        """ Chop forward function used in test time.
+        """Chop forward function used in test time.
         Converts large images into patches of size (patch_size, patch_size).
         Make sure the patch size is small enough that your GPU memory is sufficient.
         Examples: patch_size = 200 for BlindSR, 64 for ABPN
@@ -175,22 +201,24 @@ class Model:
         #     patch_size += 1
         patch_size = min(img_height, img_width, patch_size)
 
-        img_patches = extract_patches_2d(img=data, 
-                                        patch_shape=(patch_size, patch_size), 
-                                        step=[step, step], 
-                                        batch_first=True).squeeze(0)
-        
+        img_patches = extract_patches_2d(
+            img=data,
+            patch_shape=(patch_size, patch_size),
+            step=[step, step],
+            batch_first=True,
+        ).squeeze(0)
+
         n_patches = img_patches.size(0)
         highres_patches = []
 
         with self.get_torch_ctx():
             for p in range(n_patches):
                 # print(p)
-                lowres_input = img_patches[p:p + 1]
+                lowres_input = img_patches[p : p + 1]
                 prediction = self.model(lowres_input)
-                if self.arch == 'ppon':
+                if self.arch == "ppon":
                     prediction = prediction[2]
-                if self.arch == 'ts':
+                if self.arch == "ts":
                     # fix for CUDA out of memory.
                     prediction = prediction.detach().cpu()
                 highres_patches.append(prediction)
@@ -199,10 +227,11 @@ class Model:
         highres_patches = torch.cat(highres_patches, 0)
 
         return recompose_tensor(
-            highres_patches, img_height, img_width, step=step, scale=self.scale)
+            highres_patches, img_height, img_width, step=step, scale=self.scale
+        )
 
     def get_torch_ctx(self):
-        if self.arch == 'ts' and float(torch.__version__[:3]) < 1.8:
+        if self.arch == "ts" and float(torch.__version__[:3]) < 1.8:
             # issue with torchscript: RuntimeError: CUDA driver error: a PTX JIT compilation failed
             # https://github.com/pytorch/pytorch/issues/47304
             return nullcast()
@@ -213,11 +242,12 @@ class Model:
             t_out = self.chop_forward(
                 patch_size=200,  # 100
                 step=0.5,  # 0.9
-                data=data,)
+                data=data,
+            )
         else:
             with self.get_torch_ctx():
                 t_out = self.model(data)
-            if self.arch == 'ppon':
+            if self.arch == "ppon":
                 t_out = t_out[2]
 
         torch.cuda.empty_cache()
@@ -225,10 +255,11 @@ class Model:
         return t_out
 
 
-
 def parse_models(models_paths, scales_list=None):
 
-    model_chain = models_paths.split("+") if "+" in models_paths else models_paths.split(">")
+    model_chain = (
+        models_paths.split("+") if "+" in models_paths else models_paths.split(">")
+    )
 
     all_models = get_models_paths("./models")
 
@@ -241,13 +272,13 @@ def parse_models(models_paths, scales_list=None):
         scales_list = [None] * len(full_chain)
         rlt_scales = []
         for m, sc in zip(full_chain, scales_list):
-            rlt_scales.append(
-                get_scale_name(m, sc))
+            rlt_scales.append(get_scale_name(m, sc))
         scales_list = rlt_scales
     else:
         if len(scales_list) != len(model_chain):
             raise ValueError(
-                f"The num. of scales {len(scales_list)} is != from number of models {len(model_chain)}")
+                f"The num. of scales {len(scales_list)} is != from number of models {len(model_chain)}"
+            )
 
     return full_chain, scales_list
 
@@ -266,7 +297,8 @@ def check_model_path(model_path, all_models=None):
                         m_list.append(m)
                 if len(m_list) > 1:
                     raise ValueError(
-                        f"Filter {model_path} returned multiple models: {m_list}.")
+                        f"Filter {model_path} returned multiple models: {m_list}."
+                    )
                 model_path = m_list[0]
             else:
                 raise ValueError(f"Model {model_path} not found.")
@@ -280,9 +312,9 @@ def get_scale_name(model_path, scale=None):
 
     rlt_scale = None
     scale_name = str(osp.basename(model_path)[0:2]).lower()
-    if 'x' in scale_name:
+    if "x" in scale_name:
         try:
-            rlt_scale = int(scale_name.replace('x', ''))
+            rlt_scale = int(scale_name.replace("x", ""))
         except ValueError:
             rlt_scale = None
 
@@ -293,74 +325,126 @@ def get_scale_name(model_path, scale=None):
     return rlt_scale
 
 
-
-
-
 pix2pix_extras = {
-    'meval': False,  # pix2pix could produce slightly better results with eval=False (uses norm layers params)
-    'strict': True,
-    'normalize': True,  # pix2pix and cyclegan use normalized images
-    }
+    "meval": False,  # pix2pix could produce slightly better results with eval=False (uses norm layers params)
+    "strict": True,
+    "normalize": True,  # pix2pix and cyclegan use normalized images
+}
 
 cyglegan_extras = {
-    'meval': True,
-    'strict': False,  # to ignore batch statistics that were enabled models trained with Pytorch < 0.4.0
-    'normalize': True,  # pix2pix and cyclegan use normalized images
-    }
+    "meval": True,
+    "strict": False,  # to ignore batch statistics that were enabled models trained with Pytorch < 0.4.0
+    "normalize": True,  # pix2pix and cyclegan use normalized images
+}
 
 default_extras = {
-    'meval': True,
-    'strict': True,
-    'normalize': False,
-    }
-
-
-
+    "meval": True,
+    "strict": True,
+    "normalize": False,
+}
 
 
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-models', '-m', type=str, required=True, help='Path to models.')
-    parser.add_argument('-arch', '-a', type=str, required=False, default='infer', help='Model architecture.')
-    parser.add_argument('-input', '-i', type=str, required=False, default='./input', help='Path to read input images.')
-    parser.add_argument('-output', '-o', type=str, required=False, default='./output', help='Path to save output images.')
-    parser.add_argument('-scale', '-s', type=str, required=False, default='-1', help='Model scaling factor.')
-    parser.add_argument('-cf', required=False, action='store_true', help='Use color correction if enabled.')
-    parser.add_argument('-comp', required=False, action='store_true', help='Save as comparison images if enabled.')
-    parser.add_argument('-no_gpu', '-cpu', required=False, action='store_false', help='Run in CPU if enabled.')
-    parser.add_argument('-no_fp16', required=False, action='store_false', help='Disable fp16 mode if needed.')
-    parser.add_argument('-norm', required=False, action='store_true', help='Normalizes images in range [-1,1] if set, else [0,1].')
+    parser.add_argument(
+        "-models", "-m", type=str, required=True, help="Path to models."
+    )
+    parser.add_argument(
+        "-arch",
+        "-a",
+        type=str,
+        required=False,
+        default="infer",
+        help="Model architecture.",
+    )
+    parser.add_argument(
+        "-input",
+        "-i",
+        type=str,
+        required=False,
+        default="./input",
+        help="Path to read input images.",
+    )
+    parser.add_argument(
+        "-output",
+        "-o",
+        type=str,
+        required=False,
+        default="./output",
+        help="Path to save output images.",
+    )
+    parser.add_argument(
+        "-scale",
+        "-s",
+        type=str,
+        required=False,
+        default="-1",
+        help="Model scaling factor.",
+    )
+    parser.add_argument(
+        "-cf",
+        required=False,
+        action="store_true",
+        help="Use color correction if enabled.",
+    )
+    parser.add_argument(
+        "-comp",
+        required=False,
+        action="store_true",
+        help="Save as comparison images if enabled.",
+    )
+    parser.add_argument(
+        "-no_gpu",
+        "-cpu",
+        required=False,
+        action="store_false",
+        help="Run in CPU if enabled.",
+    )
+    parser.add_argument(
+        "-no_fp16",
+        required=False,
+        action="store_false",
+        help="Disable fp16 mode if needed.",
+    )
+    parser.add_argument(
+        "-norm",
+        required=False,
+        action="store_true",
+        help="Normalizes images in range [-1,1] if set, else [0,1].",
+    )
     args = parser.parse_args()
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
 
-    gpu = args.no_gpu  # TODO: fp16 error with cpu: RuntimeError: "unfolded2d_copy" not implemented for 'Half'
+    gpu = (
+        args.no_gpu
+    )  # TODO: fp16 error with cpu: RuntimeError: "unfolded2d_copy" not implemented for 'Half'
     # TODO: all these options should be configurable
-    if args.arch == 'ts':
+    if args.arch == "ts":
         # TODO: not working with torchscript unless model was traced with fp16
-        fp16 = False # True
+        fp16 = False  # True
     else:
         fp16 = args.no_fp16 and gpu
 
     use_guided_filter = False
     use_modcrop = False
-    if 'unet_' in args.arch or 'p2p_' in args.arch:
+    if "unet_" in args.arch or "p2p_" in args.arch:
         defaults = pix2pix_extras
         chop = False  # tmp, could chop to unet size
-        if '512' in args.arch:
+        if "512" in args.arch:
             resize = 512
-        elif '256' in args.arch:
+        elif "256" in args.arch:
             resize = 256
-        elif '128' in args.arch:
+        elif "128" in args.arch:
             resize = 128
-    elif 'resnet_' in args.arch or 'cg_' in args.arch:
+    elif "resnet_" in args.arch or "cg_" in args.arch:
         defaults = cyglegan_extras
         chop = True
         resize = False
-    elif 'wbc' in args.arch or 'wbc' in args.models:
-        if 'tf' in args.arch or 'tf' in args.models:
+    elif "wbc" in args.arch or "wbc" in args.models:
+        if "tf" in args.arch or "tf" in args.models:
             args.arch = "wbcunet_tf"
         else:
             args.arch = "wbcunet"
@@ -374,14 +458,19 @@ def main():
         resize = False
         chop = True
 
-    meval = defaults['meval']
-    strict = defaults['strict']
-    normalize = defaults['normalize'] or args.norm
-
+    meval = defaults["meval"]
+    strict = defaults["strict"]
+    normalize = defaults["normalize"] or args.norm
 
     if fp16:
-        torch.set_default_tensor_type(torch.cuda.HalfTensor if gpu else torch.HalfTensor)
-    device = torch.device('cuda') if torch.cuda.is_available() and gpu else torch.device('cpu') 
+        torch.set_default_tensor_type(
+            torch.cuda.HalfTensor if gpu else torch.HalfTensor
+        )
+    device = (
+        torch.device("cuda")
+        if torch.cuda.is_available() and gpu
+        else torch.device("cpu")
+    )
 
     cf = args.cf  # color fix
     comp = args.comp  # save comparison images
@@ -397,7 +486,9 @@ def main():
     for mc, sc in zip(model_chain, scale_chain):
         models.append(
             Model(
-                mc, args.arch, sc, device=device, meval=meval, strict=strict, chop=chop))
+                mc, args.arch, sc, device=device, meval=meval, strict=strict, chop=chop
+            )
+        )
 
     images = get_images_paths(args.input)
 
@@ -408,9 +499,9 @@ def main():
 
         # if not isinstance(img, np.ndarray):
         if img is None:
-            print(f'Error reading image {image_path}, skipping.')
+            print(f"Error reading image {image_path}, skipping.")
             continue
-        
+
         # TODO: can pad|resize|crop images to next size accepted by network
         if resize:
             img = linear_resize(img, resize)
@@ -434,14 +525,12 @@ def main():
             img_out = color_fix(img, img_out)
 
         # save images
-        save_img_path = osp.join(
-            output_dir, f'{img_name:s}.png')
+        save_img_path = osp.join(output_dir, f"{img_name:s}.png")
         if comp:
             save_img_comp([img, img_out], save_img_path)
         else:
             save_img(img_out, save_img_path)
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

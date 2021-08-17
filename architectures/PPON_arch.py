@@ -8,13 +8,14 @@ from .block import upconv_block, conv_layer, conv_block, ShortcutBlock, sequenti
 # PPON Generator
 ####################
 
+
 class PPON(nn.Module):
     """
     Progressive Perception-Oriented Network for Single Image Super-Resolution
     https://arxiv.org/pdf/1907.10399.pdf
     """
-    def __init__(self, in_nc, nf, nb, out_nc, upscale=4,
-            act_type='lrelu', alpha=1.0):
+
+    def __init__(self, in_nc, nf, nb, out_nc, upscale=4, act_type="lrelu", alpha=1.0):
         super(PPON, self).__init__()
         self.alpha = alpha
         n_upscale = int(math.log(upscale, 2))
@@ -35,18 +36,32 @@ class PPON(nn.Module):
             upsampler_ssim = upsample_block(nf, nf, 3, act_type=act_type)
             upsampler_gan = upsample_block(nf, nf, 3, act_type=act_type)
         else:
-            upsampler = [upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)]
-            upsampler_ssim = [upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)]
-            upsampler_gan = [upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)]
+            upsampler = [
+                upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)
+            ]
+            upsampler_ssim = [
+                upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)
+            ]
+            upsampler_gan = [
+                upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)
+            ]
 
         HR_conv0 = conv_block(nf, nf, kernel_size=3, norm_type=None, act_type=act_type)
         HR_conv1 = conv_block(nf, out_nc, kernel_size=3, norm_type=None, act_type=None)
 
-        HR_conv0_S = conv_block(nf, nf, kernel_size=3, norm_type=None, act_type=act_type)
-        HR_conv1_S = conv_block(nf, out_nc, kernel_size=3, norm_type=None, act_type=None)
+        HR_conv0_S = conv_block(
+            nf, nf, kernel_size=3, norm_type=None, act_type=act_type
+        )
+        HR_conv1_S = conv_block(
+            nf, out_nc, kernel_size=3, norm_type=None, act_type=None
+        )
 
-        HR_conv0_P = conv_block(nf, nf, kernel_size=3, norm_type=None, act_type=act_type)
-        HR_conv1_P = conv_block(nf, out_nc, kernel_size=3, norm_type=None, act_type=None)
+        HR_conv0_P = conv_block(
+            nf, nf, kernel_size=3, norm_type=None, act_type=act_type
+        )
+        HR_conv1_P = conv_block(
+            nf, out_nc, kernel_size=3, norm_type=None, act_type=None
+        )
 
         # Content Feature Extraction Module (CFEM)
         self.CFEM = sequential(fea_conv, ShortcutBlock(sequential(*rb_blocks, LR_conv)))
@@ -79,15 +94,15 @@ class _ResBlock_32(nn.Module):
     def __init__(self, nc=64):
         super(_ResBlock_32, self).__init__()
         self.c1 = conv_layer(nc, nc, 3, 1, 1)
-        self.d1 = conv_layer(nc, nc//2, 3, 1, 1)  # rate=1
-        self.d2 = conv_layer(nc, nc//2, 3, 1, 2)  # rate=2
-        self.d3 = conv_layer(nc, nc//2, 3, 1, 3)  # rate=3
-        self.d4 = conv_layer(nc, nc//2, 3, 1, 4)  # rate=4
-        self.d5 = conv_layer(nc, nc//2, 3, 1, 5)  # rate=5
-        self.d6 = conv_layer(nc, nc//2, 3, 1, 6)  # rate=6
-        self.d7 = conv_layer(nc, nc//2, 3, 1, 7)  # rate=7
-        self.d8 = conv_layer(nc, nc//2, 3, 1, 8)  # rate=8
-        self.act = act('lrelu')
+        self.d1 = conv_layer(nc, nc // 2, 3, 1, 1)  # rate=1
+        self.d2 = conv_layer(nc, nc // 2, 3, 1, 2)  # rate=2
+        self.d3 = conv_layer(nc, nc // 2, 3, 1, 3)  # rate=3
+        self.d4 = conv_layer(nc, nc // 2, 3, 1, 4)  # rate=4
+        self.d5 = conv_layer(nc, nc // 2, 3, 1, 5)  # rate=5
+        self.d6 = conv_layer(nc, nc // 2, 3, 1, 6)  # rate=6
+        self.d7 = conv_layer(nc, nc // 2, 3, 1, 7)  # rate=7
+        self.d8 = conv_layer(nc, nc // 2, 3, 1, 8)  # rate=8
+        self.act = act("lrelu")
         self.c2 = conv_layer(nc * 4, nc, 1, 1, 1)  # 256-->64
 
     def forward(self, input):
@@ -114,6 +129,7 @@ class _ResBlock_32(nn.Module):
         output = input + output2.mul(0.2)
 
         return output
+
 
 class RRBlock_32(nn.Module):
     def __init__(self):

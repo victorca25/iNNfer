@@ -7,12 +7,12 @@ def bgr_to_rgb(image: torch.Tensor) -> torch.Tensor:
     # https://github.com/pytorch/pytorch/issues/229
     out: torch.Tensor = image.flip(-3)
     # RGB to BGR #may be faster:
-    #out: torch.Tensor = image[[2, 1, 0], :, :]
+    # out: torch.Tensor = image[[2, 1, 0], :, :]
     return out
 
 
 def rgb_to_bgr(image: torch.Tensor) -> torch.Tensor:
-    #same operation as bgr_to_rgb(), flip image channels
+    # same operation as bgr_to_rgb(), flip image channels
     return bgr_to_rgb(image)
 
 
@@ -22,12 +22,12 @@ def bgra_to_rgba(image: torch.Tensor) -> torch.Tensor:
 
 
 def rgba_to_bgra(image: torch.Tensor) -> torch.Tensor:
-    #same operation as bgra_to_rgba(), flip image channels
+    # same operation as bgra_to_rgba(), flip image channels
     return bgra_to_rgba(image)
 
 
 def srgb2linear(srgb, gamma=2.4, th=0.04045):
-    """ Convert SRGB images to linear RGB color space.
+    """Convert SRGB images to linear RGB color space.
         To use the formulat, values have to be in the 0 to 1 range,
         for that reason srgb must be in range [0,255], uint8 and:
         signal = input / 255 is applied.
@@ -42,19 +42,17 @@ def srgb2linear(srgb, gamma=2.4, th=0.04045):
     att = 12.92
     linear = np.float32(srgb) / 255.0
 
-    return np.where(
-        linear<=th, linear/att, np.power((linear+a)/(1+a), gamma))
+    return np.where(linear <= th, linear / att, np.power((linear + a) / (1 + a), gamma))
 
 
 def linear2srgb(linear, gamma=2.4, th=0.0031308):
-    """ Convert linear RGB images to SRGB color space.
-    linear must be in range [0,1], float32 """
+    """Convert linear RGB images to SRGB color space.
+    linear must be in range [0,1], float32"""
     a = 0.055
     att = 12.92
     srgb = np.clip(linear.copy(), 0.0, 1.0)
 
-    srgb = np.where(
-        srgb<=th, srgb*att, (1+a)*np.power(srgb, 1.0/gamma)-a)
+    srgb = np.where(srgb <= th, srgb * att, (1 + a) * np.power(srgb, 1.0 / gamma) - a)
 
     # return srgb * 255.0
     return np.clip(srgb * 255.0, 0.0, 255).astype(np.uint8)
