@@ -1,18 +1,11 @@
 import logging
-import sys
 from pathlib import Path
 from typing import List
 
-import click
 import numpy as np
 import torch
-from rich import get_console, print
-from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    Progress,
-    TimeRemainingColumn,
-)
+from rich import get_console
+
 from architectures import get_network
 from utils.defaults import get_network_G_config
 from utils.utils import (
@@ -361,9 +354,9 @@ class Upscale:
         models_str: str,
         arch: str,
         scale: int,
-        cpu: bool,
-        fp16: bool,
-        normalize: bool,
+        cpu: bool = False,
+        fp16: bool = False,
+        normalize: bool = False,
     ):
         self.models_str = models_str
         self.arch = arch

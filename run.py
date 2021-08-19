@@ -2,18 +2,17 @@ import logging
 import sys
 from pathlib import Path
 from typing import List
-from utils.utils import get_images_paths, read_img, save_img, save_img_comp
-from upscale import Upscale
 
 import click
+import imageio
+from imageio.plugins.ffmpeg import FfmpegFormat
 from rich import get_console, print
 from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    Progress,
-    TimeRemainingColumn,
-)
+from rich.progress import BarColumn, Progress, TimeRemainingColumn
 from rich.traceback import install as install_traceback
+
+from upscale import Upscale
+from utils.utils import get_images_paths, read_img, save_img, save_img_comp
 
 install_traceback()
 
@@ -140,7 +139,7 @@ def image(
     fp16: bool,
     norm: bool,
     skip_existing: bool,
-    delete_input:bool,
+    delete_input: bool,
     verbose: bool,
 ):
     logging.basicConfig(
@@ -207,8 +206,96 @@ def image(
 
 
 @cli.command()
-def video():
-    pass
+@click.argument(
+    "models",
+    type=str,
+)
+@click.option(
+    "-a",
+    "--arch",
+    type=str,
+    required=False,
+    default="infer",
+    show_default=True,
+    help="Model architecture.",
+)
+@click.option(
+    "-i",
+    "--input",
+    type=Path,
+    required=False,
+    default=Path("./input/video.mp4"),
+    show_default=True,
+    help="Path to read input video.",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=Path,
+    required=False,
+    default=Path("./output/video.mp4"),
+    show_default=True,
+    help="Path to save output video.",
+)
+@click.option(
+    "-s",
+    "--scale",
+    type=int,
+    required=False,
+    default=-1,
+    help="Model scaling factor.",
+)
+@click.option("--fp16", is_flag=True, help="Enable fp16 mode if needed.")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+)
+def video(
+    models: str,
+    arch: str,
+    input: Path,
+    output: Path,
+    scale: int,
+    fp16: bool,
+    verbose: bool,
+):
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(markup=True)],
+    )
+    log = logging.getLogger()
+
+    input = input.resolve()
+    output = output.resolve()
+    if not input.exists():
+        log.error(f'Input video "{input}" does not exist.')
+        sys.exit(1)
+    elif input.is_dir():
+        log.error(f'Input video "{input}" is a directory.')
+        sys.exit(1)
+    elif output.is_dir():
+        log.error(f'Output video "{output}" is a directory.')
+        sys.exit(1)
+
+    upscale = Upscale(models, arch, scale, fp16=fp16)
+
+    video_reader: FfmpegFormat.Reader = imageio.get_reader(str(input.absolute()))
+    fps = video_reader.get_meta_data()["fps"]
+    num_frames = video_reader.count_frames()
+
+    scenes = []
+    last_scene_frame = 0
+    for i in range(250, num_frames, 250):
+        scenes.append((last_scene_frame + 1, i))
+        last_scene_frame = i
+    if len(scenes) == 0:
+        scenes.append((1, num_frames))
+    log.info(f"Video divided into {len(scenes)} scenes.")
+
+    print("TODO")
 
 
 if __name__ == "__main__":
