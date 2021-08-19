@@ -1,4 +1,7 @@
-def get_network_G_config(network_G, scale):
+from typing import Dict
+
+
+def get_network_G_config(network_G: Dict[str, str], scale: int):
     kind_G = None
     scale = int(scale)
     if isinstance(network_G, str):

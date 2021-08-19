@@ -75,7 +75,7 @@ def get_images_paths(path: Path) -> List[Path]:
     return images
 
 
-def read_img(path: Path):
+def read_img(path: Path) -> np.ndarray:
     """Reads an image using cv2 (or rawpy if dng)
     Arguments:
         path: image path to read
@@ -97,8 +97,9 @@ def read_img(path: Path):
     return img
 
 
-def save_img(img, img_path: Path, mode="RGB", scale=None):
+def save_img(img: np.ndarray, img_path: Path, mode="RGB", scale=None):
     """Save a single image to the defined path"""
+    img_path.parent.mkdir(parents=True, exist_ok=True)
     if scale:
         img = cv2.resize(
             img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST
@@ -106,7 +107,7 @@ def save_img(img, img_path: Path, mode="RGB", scale=None):
     cv2.imwrite(str(img_path.absolute()), img)
 
 
-def merge_imgs(img_list):
+def merge_imgs(img_list: List[np.ndarray]) -> np.ndarray:
     """Auxiliary function to horizontally concatenate images in
     a list using cv2.hconcat
     """
@@ -138,7 +139,7 @@ def merge_imgs(img_list):
         )
 
 
-def save_img_comp(img_list, img_path, mode="RGB"):
+def save_img_comp(img_list: List[np.ndarray], img_path: Path, mode="RGB"):
     """Create a side by side comparison of multiple images in a list
     to save to a defined path
     """
@@ -180,13 +181,13 @@ def norm(x):
 
 
 def np2tensor(
-    img,
+    img: np.ndarray,
     bgr2rgb=True,
     data_range=1.0,
     normalize=False,
     change_range=True,
     add_batch=True,
-):
+) -> torch.Tensor:
     """Converts a numpy image array into a Tensor array.
     Parameters:
         img (numpy array): the input image numpy array
@@ -225,14 +226,14 @@ def np2tensor(
 
 
 def tensor2np(
-    img,
+    img: torch.Tensor,
     rgb2bgr=True,
     remove_batch=True,
     data_range=255,
     denormalize=False,
     change_range=True,
     imtype=np.uint8,
-):
+) -> np.ndarray:
     """Converts a Tensor array into a numpy image array.
     Parameters:
         img (tensor): the input image tensor array
