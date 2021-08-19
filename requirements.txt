@@ -1,4 +1,6 @@
 click
+imageio
+imageio-ffmpeg
 numpy
 opencv_python
 rawpy
