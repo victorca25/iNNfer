@@ -110,6 +110,18 @@ def cli():
     help="Normalizes images in range [-1,1] if set, else [0,1].",
 )
 @click.option(
+    "-se",
+    "--skip-existing",
+    is_flag=True,
+    help="Skip existing output files.",
+)
+@click.option(
+    "-di",
+    "--delete-input",
+    is_flag=True,
+    help="Delete input files after upscaling.",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -127,6 +139,8 @@ def image(
     cpu: bool,
     fp16: bool,
     norm: bool,
+    skip_existing: bool,
+    delete_input:bool,
     verbose: bool,
 ):
     logging.basicConfig(
@@ -152,27 +166,43 @@ def image(
         TimeRemainingColumn(),
     ) as progress:
         task_upscaling = progress.add_task("Upscaling", total=len(images))
-        for image_path in images:
-            log.info(f'Upscaling "{image_path.name}"')
-            img = read_img(image_path)
+        for img_path in images:
+            log.info(f'Upscaling "{img_path.relative_to(input)}"')
+
+            save_img_path = output.joinpath(
+                img_path.parent.relative_to(input)
+            ).joinpath(f"{img_path.stem}.png")
+
+            if skip_existing and save_img_path.is_file():
+                log.warning(
+                    f'Image "{save_img_path.relative_to(output)}" already exists, skipping.'
+                )
+                if delete_input:
+                    img_path.unlink(missing_ok=True)
+                progress.advance(task_upscaling)
+                continue
+
+            img = read_img(img_path)
 
             # if not isinstance(img, np.ndarray):
             if img is None:
-                log.warning(f'Error reading image "{image_path}", skipping.')
+                log.warning(
+                    f'Error reading image "{img_path.relative_to(input)}", skipping.'
+                )
                 progress.advance(task_upscaling)
                 continue
 
             img_out = upscale.image(img, color_correction)
 
             # save images
-            save_img_path = output.joinpath(
-                image_path.parent.relative_to(input)
-            ).joinpath(f"{image_path.stem}.png")
-
             if comp:
                 save_img_comp([img, img_out], save_img_path)
             else:
                 save_img(img_out, save_img_path)
+
+            if delete_input:
+                img_path.unlink(missing_ok=True)
+
             progress.advance(task_upscaling)
 
 
