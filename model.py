@@ -45,13 +45,13 @@ class Model:
         model_path,
         arch=None,
         scale=None,
-        in_nc=3,
-        out_nc=3,
-        device="cpu",
-        meval=True,
-        strict=True,
-        chop=True,
-    ):
+        in_nc: int=3,
+        out_nc: int=3,
+        device: str="cpu",
+        meval: bool=True,
+        strict: bool=True,
+        chop: bool=True,
+    ) -> None:
         self.model_path = model_path
         self.arch = arch
         self.scale = scale
@@ -65,7 +65,7 @@ class Model:
         with get_console().status(f'Loading model [green]"{model_path}"[/]...'):
             self.load_model()
 
-    def load_model(self):
+    def load_model(self) -> None:
         if self.arch == "ts":
             self.model = (
                 torch.jit.load(str(self.model_path.absolute())).eval().to(self.device)
@@ -129,7 +129,7 @@ class Model:
 
             self.model = net.to(self.device)
 
-    def infer_params(self, state_dict):
+    def infer_params(self, state_dict) -> dict:
         # extract model information
         if self.arch in ("esrgan", "srgan"):
             scale2x = 0
@@ -195,7 +195,7 @@ class Model:
 
         return get_network_G_config(net_dict, self.scale)
 
-    def chop_forward(self, data, patch_size=200, step=1.0):
+    def chop_forward(self, data, patch_size: int=200, step: float=1.0):
         """Chop forward function used in test time.
         Converts large images into patches of size (patch_size, patch_size).
         Make sure the patch size is small enough that your GPU memory is sufficient.
@@ -260,7 +260,7 @@ class Model:
         return t_out
 
 
-def parse_models(models_paths: str, scales_list=None):
+def parse_models(models_paths: str, scales_list=None) -> tuple:
     model_chain = (
         models_paths.split("+") if "+" in models_paths else models_paths.split(">")
     )
@@ -348,7 +348,7 @@ default_extras = {
 }
 
 
-class Upscale:
+class Process:
     def __init__(
         self,
         models_str: str,
@@ -357,7 +357,7 @@ class Upscale:
         cpu: bool = False,
         fp16: bool = False,
         normalize: bool = False,
-    ):
+    ) -> None:
         self.models_str = models_str
         self.arch = arch
         self.scale = scale
@@ -430,7 +430,7 @@ class Upscale:
         # self.models = []
         self.load_models()
 
-    def load_models(self):
+    def load_models(self) -> None:
         model_chain, scale_chain = parse_models(self.models_str)
         self.models = []
         for mc, sc in zip(model_chain, scale_chain):

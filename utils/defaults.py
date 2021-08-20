@@ -1,7 +1,7 @@
 from typing import Dict
 
 
-def get_network_G_config(network_G: Dict[str, str], scale: int):
+def get_network_G_config(network_G: Dict[str, str], scale: int) -> dict:
     kind_G = None
     scale = int(scale)
     if isinstance(network_G, str):

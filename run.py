@@ -4,14 +4,20 @@ from pathlib import Path
 from typing import List
 
 import click
-import imageio
-from imageio.plugins.ffmpeg import FfmpegFormat
+
 from rich import get_console, print
 from rich.logging import RichHandler
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
 from rich.traceback import install as install_traceback
 
-from upscale import Upscale
+try:
+    import imageio
+    from imageio.plugins.ffmpeg import FfmpegFormat
+    imageio_available = True
+except ImportError:
+    imageio_available = False
+
+from model import Process
 from utils.utils import get_images_paths, read_img, save_img, save_img_comp
 
 install_traceback()
@@ -118,7 +124,7 @@ def cli():
     "-di",
     "--delete-input",
     is_flag=True,
-    help="Delete input files after upscaling.",
+    help="Delete input files after processing.",
 )
 @click.option(
     "-v",
@@ -150,7 +156,7 @@ def image(
     )
     log = logging.getLogger()
 
-    upscale = Upscale(models, arch, scale, cpu, fp16, norm)
+    process = Process(models, arch, scale, cpu, fp16, norm)
 
     try:
         images = get_images_paths(input)
@@ -164,9 +170,9 @@ def image(
         "[progress.percentage]{task.percentage:>3.0f}%",
         TimeRemainingColumn(),
     ) as progress:
-        task_upscaling = progress.add_task("Upscaling", total=len(images))
+        task_processing = progress.add_task("Processing", total=len(images))
         for img_path in images:
-            log.info(f'Upscaling "{img_path.relative_to(input)}"')
+            log.info(f'Processing "{img_path.relative_to(input)}"')
 
             save_img_path = output.joinpath(
                 img_path.parent.relative_to(input)
@@ -178,7 +184,7 @@ def image(
                 )
                 if delete_input:
                     img_path.unlink(missing_ok=True)
-                progress.advance(task_upscaling)
+                progress.advance(task_processing)
                 continue
 
             img = read_img(img_path)
@@ -188,10 +194,10 @@ def image(
                 log.warning(
                     f'Error reading image "{img_path.relative_to(input)}", skipping.'
                 )
-                progress.advance(task_upscaling)
+                progress.advance(task_processing)
                 continue
 
-            img_out = upscale.image(img, color_correction)
+            img_out = process.image(img, color_correction)
 
             # save images
             if comp:
@@ -202,7 +208,7 @@ def image(
             if delete_input:
                 img_path.unlink(missing_ok=True)
 
-            progress.advance(task_upscaling)
+            progress.advance(task_processing)
 
 
 @cli.command()
@@ -268,6 +274,10 @@ def video(
     )
     log = logging.getLogger()
 
+    if not imageio_available:
+        raise Exception(
+            "Video processing requires imageio and imageio-ffmpeg packages.")
+
     input = input.resolve()
     output = output.resolve()
     if not input.exists():
@@ -280,7 +290,7 @@ def video(
         log.error(f'Output video "{output}" is a directory.')
         sys.exit(1)
 
-    upscale = Upscale(models, arch, scale, fp16=fp16)
+    process = Process(models, arch, scale, fp16=fp16)
 
     video_reader: FfmpegFormat.Reader = imageio.get_reader(str(input.absolute()))
     fps = video_reader.get_meta_data()["fps"]

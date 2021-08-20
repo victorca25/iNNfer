@@ -168,7 +168,7 @@ This flag will work, even if multiple models are chained.
 
 There are multiple ways to help this project. The first one is by using it and trying to produce results with your models. You can open an [issue](https://github.com/victorca25/iNNfer/issues) if you find any bugs or if you have ideas or questions.
 
-If you would like to contribute in the form of adding or fixing code, you can do so be cloning this repo and creating a [PR](https://github.com/victorca25/iNNfer/pulls).
+If you would like to contribute in the form of adding or fixing code, you can do so by cloning this repo and creating a [PR](https://github.com/victorca25/iNNfer/pulls).
 
 You can also join the [discord servers](#additional-Help) and share results and questions with other users.
 
