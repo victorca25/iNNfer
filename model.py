@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -45,12 +45,12 @@ class Model:
         model_path,
         arch=None,
         scale=None,
-        in_nc: int=3,
-        out_nc: int=3,
-        device: str="cpu",
-        meval: bool=True,
-        strict: bool=True,
-        chop: bool=True,
+        in_nc: int = 3,
+        out_nc: int = 3,
+        device: str = "cpu",
+        meval: bool = True,
+        strict: bool = True,
+        chop: bool = True,
     ) -> None:
         self.model_path = model_path
         self.arch = arch
@@ -195,7 +195,7 @@ class Model:
 
         return get_network_G_config(net_dict, self.scale)
 
-    def chop_forward(self, data, patch_size: int=200, step: float=1.0):
+    def chop_forward(self, data, patch_size: int = 200, step: float = 1.0):
         """Chop forward function used in test time.
         Converts large images into patches of size (patch_size, patch_size).
         Make sure the patch size is small enough that your GPU memory is sufficient.
@@ -260,7 +260,9 @@ class Model:
         return t_out
 
 
-def parse_models(models_paths: str, scales_list=None) -> tuple:
+def parse_models(
+    models_paths: str, scales_list=None
+) -> Tuple[List[str], List[Optional[int]]]:
     model_chain = (
         models_paths.split("+") if "+" in models_paths else models_paths.split(">")
     )
@@ -311,7 +313,7 @@ def check_model_path(model_path: str, all_models: List[Path] = None):
     return model_path
 
 
-def get_scale_name(model_path: Path, scale=None):
+def get_scale_name(model_path: Path, scale=None) -> Optional[int]:
     """try to get model scale from model name"""
 
     rlt_scale = None
@@ -324,7 +326,9 @@ def get_scale_name(model_path: Path, scale=None):
 
     if scale:
         if rlt_scale and (scale != rlt_scale):
-            print(f"Warning: possible model scale mismatch on {model_path}")
+            logging.getLogger().warning(
+                f"Possible model scale mismatch on {model_path}"
+            )
         return scale
     return rlt_scale
 

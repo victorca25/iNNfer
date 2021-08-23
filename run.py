@@ -1,24 +1,35 @@
+import configparser
+import datetime as dt
 import logging
 import sys
+import time
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import click
-
+from humanize.time import precisedelta
 from rich import get_console, print
 from rich.logging import RichHandler
+from rich.markdown import Markdown
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
 from rich.traceback import install as install_traceback
 
 try:
     import imageio
     from imageio.plugins.ffmpeg import FfmpegFormat
+
     imageio_available = True
 except ImportError:
     imageio_available = False
 
 from model import Process
-from utils.utils import get_images_paths, read_img, save_img, save_img_comp
+from utils.utils import (
+    are_same_imgs,
+    get_images_paths,
+    read_img,
+    save_img,
+    save_img_comp,
+)
 
 install_traceback()
 
@@ -253,6 +264,27 @@ def image(
 )
 @click.option("--fp16", is_flag=True, help="Enable fp16 mode if needed.")
 @click.option(
+    "-q",
+    "--quality",
+    type=click.FloatRange(1, 10),
+    required=False,
+    default=10,
+    help="Video quality.",
+)
+@click.option(
+    "--ssim",
+    is_flag=True,
+    help="True to enable duplication frame removal using ssim. False to use np.all().",
+)
+@click.option(
+    "-ms",
+    "--min-ssim",
+    type=float,
+    required=False,
+    default=0.9987,
+    help="Min SSIM value.",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -264,6 +296,9 @@ def video(
     output: Path,
     scale: int,
     fp16: bool,
+    quality: float,
+    ssim: bool,
+    min_ssim: float,
     verbose: bool,
 ):
     logging.basicConfig(
@@ -276,7 +311,8 @@ def video(
 
     if not imageio_available:
         raise Exception(
-            "Video processing requires imageio and imageio-ffmpeg packages.")
+            "Video processing requires imageio and imageio-ffmpeg packages."
+        )
 
     input = input.resolve()
     output = output.resolve()
@@ -296,16 +332,252 @@ def video(
     fps = video_reader.get_meta_data()["fps"]
     num_frames = video_reader.count_frames()
 
-    scenes = []
-    last_scene_frame = 0
-    for i in range(250, num_frames, 250):
-        scenes.append((last_scene_frame + 1, i))
-        last_scene_frame = i
-    if len(scenes) == 0:
-        scenes.append((1, num_frames))
-    log.info(f"Video divided into {len(scenes)} scenes.")
+    project_path = output.parent.joinpath(f"{output.stem}").absolute()
+    ai_processed_path = project_path.joinpath("scenes")
+    scenes_ini = project_path.joinpath("scenes.ini")
+    frames_todo: List[Tuple[int, int]] = []
+    frames_processed: List[Tuple[int, int]] = []
+    config = configparser.ConfigParser()
+    if project_path.is_dir():
+        resume_mode = True
+        log.info(f'Resuming project "{project_path}"')
+        config.read(scenes_ini)
+        for scene in config.sections():
+            start_frame, end_frame = scene.split("_")
+            start_frame = int(start_frame)
+            end_frame = int(end_frame)
+            if config.getboolean(scene, "processed") == True:
+                frames_processed.append((start_frame, end_frame))
+            else:
+                frames_todo.append((start_frame, end_frame))
+    else:
+        resume_mode = False
+        scenes = []
+        with get_console().status("Dividing the video into scenes..."):
+            last_scene_frame = 0
+            for i in range(250, num_frames, 250):
+                scenes.append((last_scene_frame + 1, i))
+                last_scene_frame = i
+            if len(scenes) == 0:
+                scenes.append((1, num_frames))
+            if last_scene_frame != num_frames:
+                scenes.append((last_scene_frame + 1, num_frames))
 
-    print("TODO")
+        log.info(
+            f"Video divided into {len(scenes)} scene{'' if len(scenes)==1 else 's'}."
+        )
+
+        ai_processed_path.mkdir(parents=True, exist_ok=True)
+        if num_frames != scenes[-1][1]:
+            log.error("num_frames != scenes[-1][1]")
+            exit(1)
+        for scene in scenes:
+            start_frame = str(scene[0]).zfill(len(str(num_frames)))
+            end_frame = str(scene[1]).zfill(len(str(num_frames)))
+            config[f"{start_frame}_{end_frame}"] = {
+                "processed": "False",
+                "duplicated_frames": "None",
+                "average_fps": "None",
+            }
+            frames_todo.append((int(start_frame), int(end_frame)))
+
+        with open(scenes_ini, "w") as configfile:
+            config.write(configfile)
+
+    with Progress(
+        "[progress.description]{task.description}",
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        BarColumn(),
+        TimeRemainingColumn(),
+        # FpsSpeedColumn(),
+    ) as progress:
+        num_frames_processed = 0
+        for start_frame, end_frame in frames_processed:
+            num_frames_processed += end_frame - start_frame + 1
+        task_processed_id = progress.add_task(
+            f'Porcessing [green]"{input.name}"[/]', total=num_frames
+        )
+        if num_frames_processed > 0:
+            log.info(f"Skipped {num_frames_processed} frames already processed")
+            progress.update(
+                task_processed_id, completed=num_frames_processed, refresh=True
+            )
+        for start_frame, end_frame in frames_todo:
+            start_time = time.process_time()
+            last_frame = None
+            last_frame_ai = None
+            video_reader.set_image_index(start_frame - 1)
+            start_frame_str = str(start_frame).zfill(len(str(num_frames)))
+            end_frame_str = str(end_frame).zfill(len(str(num_frames)))
+            task_scene_id = progress.add_task(
+                description=f'Scene [green]"{start_frame_str}_{end_frame_str}"[/]',
+                total=end_frame - start_frame + 1,
+                completed=0,
+                refresh=True,
+            )
+            video_writer: FfmpegFormat.Writer = imageio.get_writer(
+                str(
+                    ai_processed_path.joinpath(
+                        f"{start_frame_str}_{end_frame_str}.mp4"
+                    ).absolute()
+                ),
+                fps=fps,
+                quality=quality,
+                macro_block_size=None,
+            )
+            duplicated_frames = 0
+            total_duplicated_frames = 0
+            for current_frame_idx in range(start_frame, end_frame + 1):
+                frame = video_reader.get_next_data()
+
+                # if deinterpaint is not None:
+                #     for i in range(
+                #         0 if deinterpaint == DeinterpaintOptions.even else 1, frame.shape[0], 2
+                #     ):
+                #         frame[i : i + 1] = (0, 255, 0)  # (B, G, R)
+
+                if last_frame is not None and are_same_imgs(
+                    last_frame, frame, ssim, min_ssim
+                ):
+                    frame_ai = last_frame_ai
+                    if duplicated_frames == 0:
+                        start_duplicated_frame = current_frame_idx - 1
+                    duplicated_frames += 1
+                else:
+                    frame_ai = process.image(frame)
+                    if duplicated_frames != 0:
+                        start_duplicated_frame_str = str(start_duplicated_frame).zfill(
+                            len(str(num_frames))
+                        )
+                        current_frame_idx_str = str(current_frame_idx - 1).zfill(
+                            len(str(num_frames))
+                        )
+                        log.info(
+                            f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}-{current_frame_idx_str})"
+                        )
+                        total_duplicated_frames += duplicated_frames
+                        duplicated_frames = 0
+                video_writer.append_data(frame_ai)
+                last_frame = frame
+                last_frame_ai = frame_ai
+                progress.advance(task_processed_id)
+                progress.advance(task_scene_id)
+
+            if duplicated_frames != 0:
+                start_duplicated_frame_str = str(start_duplicated_frame).zfill(
+                    len(str(num_frames))
+                )
+                current_frame_idx_str = str(current_frame_idx - 1).zfill(
+                    len(str(num_frames))
+                )
+                log.info(
+                    f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}-{current_frame_idx_str})"
+                )
+                total_duplicated_frames += duplicated_frames
+                duplicated_frames = 0
+
+            video_writer.close()
+            task_scene = next(
+                task for task in progress.tasks if task.id == task_scene_id
+            )
+
+            config.set(f"{start_frame_str}_{end_frame_str}", "processed", "True")
+            config.set(
+                f"{start_frame_str}_{end_frame_str}",
+                "duplicated_frames",
+                f"{total_duplicated_frames}",
+            )
+            config.set(
+                f"{start_frame_str}_{end_frame_str}",
+                "average_fps",
+                f"{task_scene.finished_speed:.2f}",
+            )
+            with open(scenes_ini, "w") as configfile:
+                config.write(configfile)
+            log.info(
+                f"Frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))} processed in {precisedelta(dt.timedelta(seconds=time.process_time() - start_time))}"
+            )
+            if total_duplicated_frames > 0:
+                total_frames = end_frame - (start_frame - 1)
+                seconds_saved = (
+                    (
+                        (1 / task_scene.finished_speed * total_frames)
+                        - (
+                            total_duplicated_frames * 0.04
+                        )  # 0.04 seconds per duplicate frame
+                    )
+                    / (total_frames - total_duplicated_frames)
+                    * total_duplicated_frames
+                )
+                log.info(
+                    f"Total number of duplicated frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))}: {total_duplicated_frames} (saved ≈ {precisedelta(dt.timedelta(seconds=seconds_saved))})"
+                )
+            progress.remove_task(task_scene_id)
+
+    video_reader.close()
+    with open(
+        project_path.joinpath("ffmpeg_list.txt"), "w", encoding="utf-8"
+    ) as outfile:
+        for mp4_path in ai_processed_path.glob("*.mp4"):
+            outfile.write(f"file '{mp4_path.relative_to(project_path).as_posix()}'\n")
+    total_duplicated_frames = 0
+    total_average_fps = 0
+    for section in config.sections():
+        total_duplicated_frames += config.getint(section, "duplicated_frames")
+        total_average_fps += config.getfloat(section, "average_fps")
+    total_average_fps = total_average_fps / len(config.sections())
+    if not resume_mode:
+        task_processed = next(
+            task for task in progress.tasks if task.id == task_processed_id
+        )
+        total_average_fps = task_processed.finished_speed
+    if total_duplicated_frames > 0:
+        seconds_saved = (
+            (
+                (1 / total_average_fps * num_frames)
+                - (total_duplicated_frames * 0.04)  # 0.04 seconds per duplicate frame
+            )
+            / (num_frames - total_duplicated_frames)
+            * total_duplicated_frames
+        )
+        log.info(
+            f"Total number of duplicated frames: {total_duplicated_frames} (saved ≈ {precisedelta(dt.timedelta(seconds=seconds_saved))})"
+        )
+    log.info(f"Total FPS: {total_average_fps:.2f}")
+    print("\nProcessed completed!\n")
+
+    bad_scenes = []
+    with get_console().status(
+        "Checking the correct number of frames of the mp4 files..."
+    ):
+        for mp4_path in ai_processed_path.glob("*.mp4"):
+            start_frame, end_frame = mp4_path.stem.split("_")
+            num_frames = int(end_frame) - int(start_frame) + 1
+            with imageio.get_reader(str(mp4_path.absolute())) as video_reader:
+                frames_mp4 = video_reader.count_frames()
+            if num_frames != frames_mp4:
+                bad_scenes.append(f"{mp4_path.stem}")
+
+    if len(bad_scenes) > 0:
+        for scene in bad_scenes:
+            config.set(scene, "processed", "False")
+        with open(scenes_ini, "w") as configfile:
+            config.write(configfile)
+        if len(bad_scenes) == 1:
+            bad_scenes_str = f"[green]{bad_scenes[0]}[/]"
+        else:
+            bad_scenes_str = f'[green]{"[/], [green]".join(bad_scenes[:-1])}[/] and [green]{bad_scenes[-1]}[/]'
+        print(f"The following scenes were incorrectly processed: {bad_scenes_str}.")
+        print(f"Please re-run the script to finish processing them.")
+    else:
+        print(
+            f'Go to the "{project_path}" directory and run the following command to concatenate the scenes.'
+        )
+        print(
+            Markdown(
+                f"`ffmpeg -f concat -safe 0 -i ffmpeg_list.txt -c copy {output.stem}.mp4`"
+            )
+        )
 
 
 if __name__ == "__main__":

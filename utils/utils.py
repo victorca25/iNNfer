@@ -1,12 +1,11 @@
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-from .colors import *
+from skimage.metrics import structural_similarity as get_ssim
 
 try:
     import rawpy
@@ -15,6 +14,7 @@ try:
 except ImportError:
     rawpy_available = False
 
+from .colors import *
 
 MODEL_EXTENSIONS = [".pth", ".pt"]
 
@@ -807,3 +807,32 @@ def swa2normal(state_dict):
         state_dict = crt_net
 
     return state_dict
+
+
+def are_same_imgs(
+    img1: np.ndarray, img2: np.ndarray, ssim=True, min_ssim=0.9987, chunk_size=450
+) -> bool:
+    # TODO Try np.isclose(), Cosine similarity+MSE
+    # s = get_ssim(img1, img2, multichannel=True)
+    # return s >= min_ssim
+    if (img1 == img2).all():
+        return True
+    if not ssim:
+        return False
+    chunks_img1 = get_img_chunks(img1, chunk_size)
+    chunks_img2 = get_img_chunks(img2, chunk_size)
+    for key, img1_chunk in chunks_img1.items():
+        img2_chunk = chunks_img2[key]
+        s = get_ssim(img1_chunk, img2_chunk, multichannel=True)
+        if s < min_ssim:
+            return False
+
+    return True
+
+
+def get_img_chunks(img: np.ndarray, chunk_size=16) -> Dict[str, np.ndarray]:
+    chunks: Dict[str, np.ndarray] = {}
+    for r in range(0, img.shape[0], chunk_size):
+        for c in range(0, img.shape[1], chunk_size):
+            chunks[f"{r}_{c}"] = img[r : r + chunk_size, c : c + chunk_size, :]
+    return chunks
