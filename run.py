@@ -1,21 +1,27 @@
 import configparser
-import datetime as dt
 import logging
 import sys
 import time
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Thread
 from typing import List, Tuple
 
 import click
 import numpy as np
 import torch
-from humanize.time import precisedelta
 from rich import get_console, print
 from rich.logging import RichHandler
 from rich.markdown import Markdown
 from rich.progress import BarColumn, Progress, TaskID, TimeRemainingColumn
 from rich.traceback import install as install_traceback
+
+try:
+    import datetime as dt
+    from humanize.time import precisedelta
+
+    humanize_available = True
+except ImportError:
+    humanize_available = False
 
 try:
     import imageio
@@ -416,8 +422,14 @@ def video_thread_func(
     )
     with open(scenes_ini, "w") as configfile:
         config.write(configfile)
+    if humanize_available:
+        processed_time = precisedelta(
+            dt.timedelta(seconds=time.process_time() - start_time)
+        )
+    else:
+        processed_time = f"{time.process_time() - start_time} seconds"
     log.info(
-        f"Frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))} processed in {precisedelta(dt.timedelta(seconds=time.process_time() - start_time))}"
+        f"Frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))} processed in {processed_time}"
     )
     if total_duplicated_frames > 0:
         total_frames = end_frame - (start_frame - 1)
@@ -429,8 +441,12 @@ def video_thread_func(
             / (total_frames - total_duplicated_frames)
             * total_duplicated_frames
         )
+        if humanize_available:
+            seconds_saved = precisedelta(dt.timedelta(seconds=seconds_saved))
+        else:
+            seconds_saved = f"{seconds_saved} seconds"
         log.info(
-            f"Total number of duplicated frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))}: {total_duplicated_frames} (saved ≈ {precisedelta(dt.timedelta(seconds=seconds_saved))})"
+            f"Total number of duplicated frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))}: {total_duplicated_frames} (saved ≈ {processed_time})"
         )
     progress.remove_task(task_scene_id)
     if multi_gpu:
@@ -747,8 +763,12 @@ def video(
             / (num_frames - total_duplicated_frames)
             * total_duplicated_frames
         )
+        if humanize_available:
+            seconds_saved = precisedelta(dt.timedelta(seconds=seconds_saved))
+        else:
+            seconds_saved = f"{seconds_saved} seconds"
         log.info(
-            f"Total number of duplicated frames: {total_duplicated_frames} (saved ≈ {precisedelta(dt.timedelta(seconds=seconds_saved))})"
+            f"Total number of duplicated frames: {total_duplicated_frames} (saved ≈ {seconds_saved})"
         )
     log.info(f"Total FPS: {total_average_fps:.2f}")
     print("\nProcessed completed!\n")
