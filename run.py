@@ -272,6 +272,13 @@ def image(
     help="Video quality.",
 )
 @click.option(
+    "-ffmpeg",
+    "--ffmpeg-params",
+    type=str,
+    required=False,
+    help='FFmpeg parameters to save the scenes. If -crf is present, the quality parameter will be ignored. Example: "-c:v libx265 -crf 5 -pix_fmt yuv444p10le -preset medium -x265-params pools=none -threads 8"',
+)
+@click.option(
     "--ssim",
     is_flag=True,
     help="True to enable duplication frame removal using ssim. False to use np.all().",
@@ -297,6 +304,7 @@ def video(
     scale: int,
     fp16: bool,
     quality: float,
+    ffmpeg_params: str,
     ssim: bool,
     min_ssim: float,
     verbose: bool,
@@ -409,6 +417,11 @@ def video(
                 completed=0,
                 refresh=True,
             )
+            video_writer_params = {"quality": quality}
+            if ffmpeg_params:
+                if "-crf" in ffmpeg_params:
+                    del video_writer_params["quality"]
+                video_writer_params["output_params"] = ffmpeg_params.split()
             video_writer: FfmpegFormat.Writer = imageio.get_writer(
                 str(
                     ai_processed_path.joinpath(
@@ -416,8 +429,8 @@ def video(
                     ).absolute()
                 ),
                 fps=fps,
-                quality=quality,
                 macro_block_size=None,
+                **video_writer_params,
             )
             duplicated_frames = 0
             total_duplicated_frames = 0
