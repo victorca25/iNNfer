@@ -367,6 +367,14 @@ class ModelDevice:
         self.locks = [Lock() for _ in range(processed_by_device)]
         self.models = []
 
+    @property
+    def name(self):
+        if self.device.type == "cuda":
+            device_name = torch.cuda.get_device_name(self.device.index)
+        else:
+            device_name = "CPU"
+        return device_name
+
 
 class Process:
     def __init__(

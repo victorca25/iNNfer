@@ -8,6 +8,7 @@ from threading import Lock, Thread
 from typing import List, Tuple
 
 import click
+import numpy as np
 import torch
 from humanize.time import precisedelta
 from rich import get_console, print
@@ -39,6 +40,27 @@ install_traceback()
 @click.group()
 def cli():
     pass
+
+
+def image_thread_func(
+    img: np.ndarray,
+    device: torch.device,
+    color_correction: bool,
+    comp: bool,
+    save_img_path: Path,
+    process: Process,
+    progress: Progress,
+    task_processing: TaskID,
+):
+    img_out = process.image(img, color_correction=color_correction, device=device)
+
+    # save images
+    if comp:
+        save_img_comp([img, img_out], save_img_path)
+    else:
+        save_img(img_out, save_img_path)
+
+    progress.advance(task_processing)
 
 
 @cli.command()
@@ -130,6 +152,7 @@ def cli():
     default=0,
     help="The numerical ID of the GPU you want to use.",
 )
+@click.option("-mg", "--multi-gpu", is_flag=True, help="Multi GPU.")
 @click.option(
     "--norm",
     is_flag=True,
@@ -165,6 +188,7 @@ def image(
     cpu: bool,
     fp16: bool,
     device_id: int,
+    multi_gpu: bool,
     norm: bool,
     skip_existing: bool,
     delete_input: bool,
@@ -179,7 +203,14 @@ def image(
     log = logging.getLogger()
 
     process = Process(
-        models, arch, scale, cpu, fp16=fp16, device_id=device_id, normalize=norm
+        models,
+        arch,
+        scale,
+        cpu,
+        fp16=fp16,
+        device_id=device_id,
+        multi_gpu=multi_gpu,
+        normalize=norm,
     )
 
     try:
@@ -195,9 +226,8 @@ def image(
         TimeRemainingColumn(),
     ) as progress:
         task_processing = progress.add_task("Processing", total=len(images))
+        threads = []
         for img_path in images:
-            log.info(f'Processing "{img_path.relative_to(input)}"')
-
             save_img_path = output.joinpath(
                 img_path.parent.relative_to(input)
             ).joinpath(f"{img_path.stem}.png")
@@ -220,19 +250,47 @@ def image(
                 )
                 progress.advance(task_processing)
                 continue
-
-            img_out = process.image(img, color_correction=color_correction)
-
-            # save images
-            if comp:
-                save_img_comp([img, img_out], save_img_path)
+            if multi_gpu:
+                model_device, num_lock = process.get_available_model_device()
             else:
-                save_img(img_out, save_img_path)
+                model_device = process.model_devices[0]
+            log.info(
+                f'Processing "{img_path.relative_to(input)}" using "{model_device.name}"'
+            )
+
+            if multi_gpu:
+                x = Thread(
+                    target=image_thread_func,
+                    args=(
+                        img,
+                        model_device.device,
+                        color_correction,
+                        comp,
+                        save_img_path,
+                        process,
+                        progress,
+                        task_processing,
+                    ),
+                )
+                threads.append(x)
+                x.start()
+            else:
+                image_thread_func(
+                    img,
+                    model_device.device,
+                    color_correction,
+                    comp,
+                    save_img_path,
+                    process,
+                    progress,
+                    task_processing,
+                )
 
             if delete_input:
                 img_path.unlink(missing_ok=True)
 
-            progress.advance(task_processing)
+        for thread in threads:
+            thread.join()
 
 
 def video_thread_func(
