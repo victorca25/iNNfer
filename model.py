@@ -363,6 +363,7 @@ class Process:
         scale: int,
         cpu: bool = False,
         fp16: bool = False,
+        device_id: int = 0,
         normalize: bool = False,
     ) -> None:
         self.models_str = models_str
@@ -426,7 +427,7 @@ class Process:
                 torch.cuda.HalfTensor if self.gpu else torch.HalfTensor
             )
         self.device = (
-            torch.device("cuda")
+            torch.device(f"cuda:{device_id}")
             if torch.cuda.is_available() and self.gpu
             else torch.device("cpu")
         )

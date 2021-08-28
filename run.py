@@ -121,6 +121,14 @@ def cli():
 )
 @click.option("--fp16", is_flag=True, help="Enable fp16 mode if needed.")
 @click.option(
+    "-did",
+    "--device-id",
+    type=int,
+    required=False,
+    default=0,
+    help="The numerical ID of the GPU you want to use.",
+)
+@click.option(
     "--norm",
     is_flag=True,
     help="Normalizes images in range [-1,1] if set, else [0,1].",
@@ -154,6 +162,7 @@ def image(
     comp: bool,
     cpu: bool,
     fp16: bool,
+    device_id: int,
     norm: bool,
     skip_existing: bool,
     delete_input: bool,
@@ -167,7 +176,9 @@ def image(
     )
     log = logging.getLogger()
 
-    process = Process(models, arch, scale, cpu, fp16, norm)
+    process = Process(
+        models, arch, scale, cpu, fp16=fp16, device_id=device_id, normalize=norm
+    )
 
     try:
         images = get_images_paths(input)
@@ -264,6 +275,15 @@ def image(
 )
 @click.option("--fp16", is_flag=True, help="Enable fp16 mode if needed.")
 @click.option(
+    "-did",
+    "--device-id",
+    type=int,
+    required=False,
+    default=0,
+    help="The numerical ID of the GPU you want to use.",
+)
+# @click.option("-mg", "--multi-gpu", is_flag=True, help="Multi GPU.")
+@click.option(
     "-q",
     "--quality",
     type=click.FloatRange(1, 10),
@@ -310,6 +330,8 @@ def video(
     output: Path,
     scale: int,
     fp16: bool,
+    device_id: int,
+    # multi_gpu: bool,
     quality: float,
     ffmpeg_params: str,
     ssim: bool,
@@ -342,7 +364,7 @@ def video(
         log.error(f'Output video "{output}" is a directory.')
         sys.exit(1)
 
-    process = Process(models, arch, scale, fp16=fp16)
+    process = Process(models, arch, scale, fp16=fp16, device_id=device_id)
 
     video_reader: FfmpegFormat.Reader = imageio.get_reader(str(input.absolute()))
     fps = video_reader.get_meta_data()["fps"]
