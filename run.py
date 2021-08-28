@@ -12,7 +12,15 @@ import torch
 from rich import get_console, print
 from rich.logging import RichHandler
 from rich.markdown import Markdown
-from rich.progress import BarColumn, Progress, TaskID, TimeRemainingColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    ProgressColumn,
+    Task,
+    TaskID,
+    TimeRemainingColumn,
+)
+from rich.text import Text
 from rich.traceback import install as install_traceback
 
 try:
@@ -41,6 +49,16 @@ from utils.utils import (
 )
 
 install_traceback()
+
+
+class FpsSpeedColumn(ProgressColumn):
+    """Renders human readable FPS speed."""
+
+    def render(self, task: Task) -> Text:
+        speed = task.finished_speed or task.speed
+        if speed is None:
+            return Text("? FPS", style="progress.data.speed")
+        return Text(f"{speed:.2f} FPS", style="progress.data.speed")
 
 
 @click.group()
@@ -662,7 +680,7 @@ def video(
         "[progress.percentage]{task.percentage:>3.0f}%",
         BarColumn(),
         TimeRemainingColumn(),
-        # FpsSpeedColumn(),
+        FpsSpeedColumn(),
     ) as progress:
         num_frames_processed = 0
         for start_frame, end_frame in frames_processed:
