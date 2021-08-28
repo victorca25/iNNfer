@@ -344,12 +344,10 @@ def video(
         config.read(scenes_ini)
         for scene in config.sections():
             start_frame, end_frame = scene.split("_")
-            start_frame = int(start_frame)
-            end_frame = int(end_frame)
             if config.getboolean(scene, "processed") == True:
-                frames_processed.append((start_frame, end_frame))
+                frames_processed.append((int(start_frame), int(end_frame)))
             else:
-                frames_todo.append((start_frame, end_frame))
+                frames_todo.append((int(start_frame), int(end_frame)))
     else:
         resume_mode = False
         scenes = []
@@ -370,7 +368,6 @@ def video(
         ai_processed_path.mkdir(parents=True, exist_ok=True)
         if num_frames != scenes[-1][1]:
             log.error("num_frames != scenes[-1][1]")
-            exit(1)
         for scene in scenes:
             start_frame = str(scene[0]).zfill(len(str(num_frames)))
             end_frame = str(scene[1]).zfill(len(str(num_frames)))
@@ -395,7 +392,7 @@ def video(
         for start_frame, end_frame in frames_processed:
             num_frames_processed += end_frame - start_frame + 1
         task_processed_id = progress.add_task(
-            f'Porcessing [green]"{input.name}"[/]', total=num_frames
+            f'Processing [green]"{input.name}"[/]', total=num_frames
         )
         if num_frames_processed > 0:
             log.info(f"Skipped {num_frames_processed} frames already processed")
@@ -404,14 +401,11 @@ def video(
             )
         for start_frame, end_frame in frames_todo:
             start_time = time.process_time()
-            last_frame = None
-            last_frame_ai = None
-            video_reader.set_image_index(start_frame - 1)
             start_frame_str = str(start_frame).zfill(len(str(num_frames)))
             end_frame_str = str(end_frame).zfill(len(str(num_frames)))
             task_scene_id = progress.add_task(
                 description=f'Scene [green]"{start_frame_str}_{end_frame_str}"[/]',
-                total=end_frame - start_frame + 1,
+                total=end_frame - start_frame,
                 completed=0,
                 refresh=True,
             )
@@ -427,51 +421,42 @@ def video(
             )
             duplicated_frames = 0
             total_duplicated_frames = 0
-            for current_frame_idx in range(start_frame, end_frame + 1):
-                frame = video_reader.get_next_data()
-
-                # if deinterpaint is not None:
-                #     for i in range(
-                #         0 if deinterpaint == DeinterpaintOptions.even else 1, frame.shape[0], 2
-                #     ):
-                #         frame[i : i + 1] = (0, 255, 0)  # (B, G, R)
-
-                if last_frame is not None and are_same_imgs(
-                    last_frame, frame, ssim, min_ssim
-                ):
-                    frame_ai = last_frame_ai
-                    if duplicated_frames == 0:
-                        start_duplicated_frame = current_frame_idx - 1
-                    duplicated_frames += 1
-                else:
-                    frame_ai = process.image(frame)
-                    if duplicated_frames != 0:
-                        start_duplicated_frame_str = str(start_duplicated_frame).zfill(
-                            len(str(num_frames))
-                        )
-                        current_frame_idx_str = str(current_frame_idx - 1).zfill(
-                            len(str(num_frames))
-                        )
-                        log.info(
-                            f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}-{current_frame_idx_str})"
-                        )
-                        total_duplicated_frames += duplicated_frames
-                        duplicated_frames = 0
+            last_frame_ai = None
+            start_duplicated_frame = 0
+            for frame_idx, frame_ai in enumerate(
+                process.video(input, start_frame - 1, end_frame, ssim, min_ssim)
+            ):
+                current_frame_idx = start_frame + frame_idx
                 video_writer.append_data(frame_ai)
-                last_frame = frame
+                if last_frame_ai is not None:
+                    if (last_frame_ai == frame_ai).all():
+                        if duplicated_frames == 0:
+                            start_duplicated_frame = current_frame_idx
+                        duplicated_frames += 1
+                    else:
+                        if duplicated_frames != 0:
+                            start_duplicated_frame_str = str(
+                                start_duplicated_frame
+                            ).zfill(len(str(num_frames)))
+                            end_duplicated_frame_str = str(current_frame_idx - 1).zfill(
+                                len(str(num_frames))
+                            )
+                            log.info(
+                                f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}{'' if duplicated_frames==1 else '-' + end_duplicated_frame_str})"
+                            )
+                            total_duplicated_frames += duplicated_frames
+                            duplicated_frames = 0
+
                 last_frame_ai = frame_ai
                 progress.advance(task_processed_id)
                 progress.advance(task_scene_id)
-
             if duplicated_frames != 0:
                 start_duplicated_frame_str = str(start_duplicated_frame).zfill(
                     len(str(num_frames))
                 )
-                current_frame_idx_str = str(current_frame_idx - 1).zfill(
-                    len(str(num_frames))
-                )
+                end_duplicated_frame_str = str(end_frame).zfill(len(str(num_frames)))
                 log.info(
-                    f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}-{current_frame_idx_str})"
+                    f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}{'' if duplicated_frames==1 else '-' + end_duplicated_frame_str})"
                 )
                 total_duplicated_frames += duplicated_frames
                 duplicated_frames = 0
@@ -516,7 +501,7 @@ def video(
 
     video_reader.close()
     with open(
-        project_path.joinpath("ffmpeg_list.txt"), "w", encoding="utf-8"
+        project_path.joinpath("scene_list.txt"), "w", encoding="utf-8"
     ) as outfile:
         for mp4_path in ai_processed_path.glob("*.mp4"):
             outfile.write(f"file '{mp4_path.relative_to(project_path).as_posix()}'\n")
@@ -575,7 +560,7 @@ def video(
         )
         print(
             Markdown(
-                f"`ffmpeg -f concat -safe 0 -i ffmpeg_list.txt -c copy {output.stem}.mp4`"
+                f"`ffmpeg -f concat -safe 0 -i scene_list.txt -c copy {output.stem}.mp4`"
             )
         )
 

@@ -1,14 +1,17 @@
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Generator, List, Optional, Tuple
 
+import imageio
 import numpy as np
 import torch
+from imageio.plugins.ffmpeg import FfmpegFormat
 from rich import get_console
 
 from architectures import get_network
 from utils.defaults import get_network_G_config
 from utils.utils import (
+    are_same_imgs,
     color_fix,
     extract_patches_2d,
     get_images_paths,
@@ -474,3 +477,38 @@ class Process:
             img_out = color_fix(img, img_out)
 
         return img_out
+
+    def video(
+        self,
+        video_path: Path,
+        start_frame: int = 0,
+        end_frame: int = None,
+        ssim: bool = False,
+        min_ssim: float = 0.9987,
+    ) -> Generator[Optional[np.ndarray], None, None]:
+        video_reader: FfmpegFormat.Reader = imageio.get_reader(
+            str(video_path.absolute())
+        )
+        num_frames = video_reader.count_frames()
+        video_reader.set_image_index(start_frame)
+        end_frame = end_frame or num_frames
+
+        last_frame = None
+        last_frame_ai = None
+        for frame_idx in range(start_frame, end_frame):
+            frame = video_reader.get_next_data()
+            # if deinterpaint is not None:
+            #     for i in range(
+            #         0 if deinterpaint == DeinterpaintOptions.even else 1, frame.shape[0], 2
+            #     ):
+            #         frame[i : i + 1] = (0, 255, 0)  # (B, G, R)
+
+            if last_frame is not None and are_same_imgs(
+                last_frame, frame, ssim, min_ssim
+            ):
+                frame_ai = last_frame_ai
+            else:
+                frame_ai = self.image(frame)
+            last_frame = frame
+            last_frame_ai = frame_ai
+            yield frame_ai
