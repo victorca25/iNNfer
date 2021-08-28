@@ -255,7 +255,12 @@ def image(
             else:
                 model_device = process.model_devices[0]
             log.info(
-                f'Processing "{img_path.relative_to(input)}" using "{model_device.name}"'
+                f'Processing "{img_path.relative_to(input)}"'
+                + (
+                    f' using "{model_device.name}"'
+                    if multi_gpu and len(process.model_devices) > 1
+                    else ""
+                )
             )
 
             if multi_gpu:
@@ -298,6 +303,7 @@ def video_thread_func(
     num_lock: int,
     multi_gpu: bool,
     input: Path,
+    output: Path,
     start_frame: int,
     end_frame: int,
     num_frames: int,
@@ -320,30 +326,28 @@ def video_thread_func(
     end_frame_str = str(end_frame).zfill(len(str(num_frames)))
     task_scene_desc = f'Scene [green]"{start_frame_str}_{end_frame_str}"[/]'
     if multi_gpu and len(process.model_devices) > 1:
-        if model_device.device.type == "cuda":
-            device_name = torch.cuda.get_device_name(model_device.device.index)
-        else:
-            device_name = "CPU"
-        task_scene_desc += f" ({device_name})"
+        task_scene_desc += f" ({model_device.name})"
     task_scene_id = progress.add_task(
         description=task_scene_desc,
         total=end_frame - start_frame,
         completed=0,
         refresh=True,
     )
-    video_writer_params = {"quality": quality}
+    video_writer_params = {"quality": quality, "macro_block_size": None}
     if ffmpeg_params:
         if "-crf" in ffmpeg_params:
             del video_writer_params["quality"]
         video_writer_params["output_params"] = ffmpeg_params.split()
+    if output.suffix == ".gif":
+        del video_writer_params["quality"]
+        del video_writer_params["macro_block_size"]
     video_writer: FfmpegFormat.Writer = imageio.get_writer(
         str(
             ai_processed_path.joinpath(
-                f"{start_frame_str}_{end_frame_str}.mp4"
+                f"{start_frame_str}_{end_frame_str}{output.suffix}"
             ).absolute()
         ),
         fps=fps,
-        macro_block_size=None,
         **video_writer_params,
     )
     duplicated_frames = 0
@@ -672,6 +676,7 @@ def video(
                         num_lock,
                         multi_gpu,
                         input,
+                        output,
                         start_frame,
                         end_frame,
                         num_frames,
@@ -697,6 +702,7 @@ def video(
                     num_lock,
                     multi_gpu,
                     input,
+                    output,
                     start_frame,
                     end_frame,
                     num_frames,
@@ -719,8 +725,8 @@ def video(
     with open(
         project_path.joinpath("scene_list.txt"), "w", encoding="utf-8"
     ) as outfile:
-        for mp4_path in ai_processed_path.glob("*.mp4"):
-            outfile.write(f"file '{mp4_path.relative_to(project_path).as_posix()}'\n")
+        for video_path in ai_processed_path.glob(f"*{output.suffix}"):
+            outfile.write(f"file '{video_path.relative_to(project_path).as_posix()}'\n")
     total_duplicated_frames = 0
     total_average_fps = 0
     for section in config.sections():
@@ -749,15 +755,15 @@ def video(
 
     bad_scenes = []
     with get_console().status(
-        "Checking the correct number of frames of the mp4 files..."
+        f"Checking the correct number of frames of the {output.suffix} files..."
     ):
-        for mp4_path in ai_processed_path.glob("*.mp4"):
-            start_frame, end_frame = mp4_path.stem.split("_")
+        for video_path in ai_processed_path.glob(f"*{output.suffix}"):
+            start_frame, end_frame = video_path.stem.split("_")
             num_frames = int(end_frame) - int(start_frame) + 1
-            with imageio.get_reader(str(mp4_path.absolute())) as video_reader:
+            with imageio.get_reader(str(video_path.absolute())) as video_reader:
                 frames_mp4 = video_reader.count_frames()
             if num_frames != frames_mp4:
-                bad_scenes.append(f"{mp4_path.stem}")
+                bad_scenes.append(f"{video_path.stem}")
 
     if len(bad_scenes) > 0:
         for scene in bad_scenes:
@@ -776,7 +782,7 @@ def video(
         )
         print(
             Markdown(
-                f"`ffmpeg -f concat -safe 0 -i scene_list.txt -c copy {output.stem}.mp4`"
+                f"`ffmpeg -f concat -safe 0 -i scene_list.txt -c copy {output.name}`"
             )
         )
 
