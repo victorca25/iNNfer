@@ -276,7 +276,7 @@ def image(
     "--ffmpeg-params",
     type=str,
     required=False,
-    help='FFmpeg parameters to save the scenes. If -crf is present, the quality parameter will be ignored. Example: "-c:v libx265 -crf 5 -pix_fmt yuv444p10le -preset medium -x265-params pools=none -threads 8"',
+    help='FFmpeg parameters to save the scenes. If -crf is present, the quality parameter will be ignored. Example: "-c:v libx265 -crf 5 -pix_fmt yuv444p10le -preset medium -x265-params pools=none -threads 8".',
 )
 @click.option(
     "--ssim",
@@ -290,6 +290,13 @@ def image(
     required=False,
     default=0.9987,
     help="Min SSIM value.",
+)
+@click.option(
+    "-dp",
+    "--deinterpaint",
+    type=click.Choice(["even", "odd"], case_sensitive=False),
+    required=False,
+    help="De-interlacing by in-painting. Fills odd or even rows with green (#00FF00). Useful for models like Joey's 1x_DeInterPaint.",
 )
 @click.option(
     "-v",
@@ -307,6 +314,7 @@ def video(
     ffmpeg_params: str,
     ssim: bool,
     min_ssim: float,
+    deinterpaint: str,
     verbose: bool,
 ):
     logging.basicConfig(
@@ -437,7 +445,9 @@ def video(
             last_frame_ai = None
             start_duplicated_frame = 0
             for frame_idx, frame_ai in enumerate(
-                process.video(input, start_frame - 1, end_frame, ssim, min_ssim)
+                process.video(
+                    input, start_frame - 1, end_frame, ssim, min_ssim, deinterpaint
+                )
             ):
                 current_frame_idx = start_frame + frame_idx
                 video_writer.append_data(frame_ai)

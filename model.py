@@ -485,6 +485,7 @@ class Process:
         end_frame: int = None,
         ssim: bool = False,
         min_ssim: float = 0.9987,
+        deinterpaint: str = None,
     ) -> Generator[Optional[np.ndarray], None, None]:
         video_reader: FfmpegFormat.Reader = imageio.get_reader(
             str(video_path.absolute())
@@ -497,11 +498,9 @@ class Process:
         last_frame_ai = None
         for frame_idx in range(start_frame, end_frame):
             frame = video_reader.get_next_data()
-            # if deinterpaint is not None:
-            #     for i in range(
-            #         0 if deinterpaint == DeinterpaintOptions.even else 1, frame.shape[0], 2
-            #     ):
-            #         frame[i : i + 1] = (0, 255, 0)  # (B, G, R)
+            if deinterpaint is not None:
+                for i in range(0 if deinterpaint == "even" else 1, frame.shape[0], 2):
+                    frame[i : i + 1] = (0, 255, 0)  # (B, G, R)
 
             if last_frame is not None and are_same_imgs(
                 last_frame, frame, ssim, min_ssim
