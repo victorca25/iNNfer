@@ -4,14 +4,16 @@ import logging
 import sys
 import time
 from pathlib import Path
+from threading import Lock, Thread
 from typing import List, Tuple
 
 import click
+import torch
 from humanize.time import precisedelta
 from rich import get_console, print
 from rich.logging import RichHandler
 from rich.markdown import Markdown
-from rich.progress import BarColumn, Progress, TimeRemainingColumn
+from rich.progress import BarColumn, Progress, TaskID, TimeRemainingColumn
 from rich.traceback import install as install_traceback
 
 try:
@@ -22,7 +24,7 @@ try:
 except ImportError:
     imageio_available = False
 
-from model import Process
+from model import ModelDevice, Process
 from utils.utils import (
     are_same_imgs,
     get_images_paths,
@@ -219,7 +221,7 @@ def image(
                 progress.advance(task_processing)
                 continue
 
-            img_out = process.image(img, color_correction)
+            img_out = process.image(img, color_correction=color_correction)
 
             # save images
             if comp:
@@ -231,6 +233,146 @@ def image(
                 img_path.unlink(missing_ok=True)
 
             progress.advance(task_processing)
+
+
+def video_thread_func(
+    model_device: ModelDevice,
+    num_lock: int,
+    multi_gpu: bool,
+    input: Path,
+    start_frame: int,
+    end_frame: int,
+    num_frames: int,
+    progress: Progress,
+    task_processed_id: TaskID,
+    ai_processed_path: Path,
+    fps: int,
+    quality: float,
+    ffmpeg_params: str,
+    deinterpaint: str,
+    ssim: bool,
+    min_ssim: float,
+    process: Process,
+    config: configparser.ConfigParser,
+    scenes_ini: Path,
+):
+    log = logging.getLogger()
+    start_time = time.process_time()
+    start_frame_str = str(start_frame).zfill(len(str(num_frames)))
+    end_frame_str = str(end_frame).zfill(len(str(num_frames)))
+    task_scene_desc = f'Scene [green]"{start_frame_str}_{end_frame_str}"[/]'
+    if multi_gpu and len(process.model_devices) > 1:
+        if model_device.device.type == "cuda":
+            device_name = torch.cuda.get_device_name(model_device.device.index)
+        else:
+            device_name = "CPU"
+        task_scene_desc += f" ({device_name})"
+    task_scene_id = progress.add_task(
+        description=task_scene_desc,
+        total=end_frame - start_frame,
+        completed=0,
+        refresh=True,
+    )
+    video_writer_params = {"quality": quality}
+    if ffmpeg_params:
+        if "-crf" in ffmpeg_params:
+            del video_writer_params["quality"]
+        video_writer_params["output_params"] = ffmpeg_params.split()
+    video_writer: FfmpegFormat.Writer = imageio.get_writer(
+        str(
+            ai_processed_path.joinpath(
+                f"{start_frame_str}_{end_frame_str}.mp4"
+            ).absolute()
+        ),
+        fps=fps,
+        macro_block_size=None,
+        **video_writer_params,
+    )
+    duplicated_frames = 0
+    total_duplicated_frames = 0
+    last_frame_ai = None
+    start_duplicated_frame = 0
+    for frame_idx, frame_ai in enumerate(
+        process.video(
+            input,
+            start_frame - 1,
+            end_frame,
+            ssim,
+            min_ssim,
+            deinterpaint=deinterpaint,
+            device=model_device.device,
+        )
+    ):
+        current_frame_idx = start_frame + frame_idx
+        video_writer.append_data(frame_ai)
+        if last_frame_ai is not None:
+            if (last_frame_ai == frame_ai).all():
+                if duplicated_frames == 0:
+                    start_duplicated_frame = current_frame_idx
+                duplicated_frames += 1
+            else:
+                if duplicated_frames != 0:
+                    start_duplicated_frame_str = str(start_duplicated_frame).zfill(
+                        len(str(num_frames))
+                    )
+                    end_duplicated_frame_str = str(current_frame_idx - 1).zfill(
+                        len(str(num_frames))
+                    )
+                    log.info(
+                        f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}{'' if duplicated_frames==1 else '-' + end_duplicated_frame_str})"
+                    )
+                    total_duplicated_frames += duplicated_frames
+                    duplicated_frames = 0
+
+        last_frame_ai = frame_ai
+        progress.advance(task_processed_id)
+        progress.advance(task_scene_id)
+    if duplicated_frames != 0:
+        start_duplicated_frame_str = str(start_duplicated_frame).zfill(
+            len(str(num_frames))
+        )
+        end_duplicated_frame_str = str(end_frame).zfill(len(str(num_frames)))
+        log.info(
+            f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}{'' if duplicated_frames==1 else '-' + end_duplicated_frame_str})"
+        )
+        total_duplicated_frames += duplicated_frames
+        duplicated_frames = 0
+
+    video_writer.close()
+    task_scene = next(task for task in progress.tasks if task.id == task_scene_id)
+
+    config.set(f"{start_frame_str}_{end_frame_str}", "processed", "True")
+    config.set(
+        f"{start_frame_str}_{end_frame_str}",
+        "duplicated_frames",
+        f"{total_duplicated_frames}",
+    )
+    config.set(
+        f"{start_frame_str}_{end_frame_str}",
+        "average_fps",
+        f"{task_scene.finished_speed:.2f}",
+    )
+    with open(scenes_ini, "w") as configfile:
+        config.write(configfile)
+    log.info(
+        f"Frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))} processed in {precisedelta(dt.timedelta(seconds=time.process_time() - start_time))}"
+    )
+    if total_duplicated_frames > 0:
+        total_frames = end_frame - (start_frame - 1)
+        seconds_saved = (
+            (
+                (1 / task_scene.finished_speed * total_frames)
+                - (total_duplicated_frames * 0.04)  # 0.04 seconds per duplicate frame
+            )
+            / (total_frames - total_duplicated_frames)
+            * total_duplicated_frames
+        )
+        log.info(
+            f"Total number of duplicated frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))}: {total_duplicated_frames} (saved ≈ {precisedelta(dt.timedelta(seconds=seconds_saved))})"
+        )
+    progress.remove_task(task_scene_id)
+    if multi_gpu:
+        model_device.locks[num_lock].release()
 
 
 @cli.command()
@@ -282,7 +424,15 @@ def image(
     default=0,
     help="The numerical ID of the GPU you want to use.",
 )
-# @click.option("-mg", "--multi-gpu", is_flag=True, help="Multi GPU.")
+@click.option("-mg", "--multi-gpu", is_flag=True, help="Multi GPU.")
+@click.option(
+    "-spg",
+    "--scenes-per-gpu",
+    type=int,
+    required=False,
+    default=1,
+    help="Number of scenes to be upscaled at the same time using the same GPU.",
+)
 @click.option(
     "-q",
     "--quality",
@@ -331,7 +481,8 @@ def video(
     scale: int,
     fp16: bool,
     device_id: int,
-    # multi_gpu: bool,
+    multi_gpu: bool,
+    scenes_per_gpu: bool,
     quality: float,
     ffmpeg_params: str,
     ssim: bool,
@@ -364,11 +515,20 @@ def video(
         log.error(f'Output video "{output}" is a directory.')
         sys.exit(1)
 
-    process = Process(models, arch, scale, fp16=fp16, device_id=device_id)
+    process = Process(
+        models,
+        arch,
+        scale,
+        fp16=fp16,
+        device_id=device_id,
+        multi_gpu=multi_gpu,
+        processed_by_device=scenes_per_gpu,
+    )
 
     video_reader: FfmpegFormat.Reader = imageio.get_reader(str(input.absolute()))
     fps = video_reader.get_meta_data()["fps"]
     num_frames = video_reader.count_frames()
+    video_reader.close()
 
     project_path = output.parent.joinpath(f"{output.stem}").absolute()
     ai_processed_path = project_path.joinpath("scenes")
@@ -437,114 +597,67 @@ def video(
             progress.update(
                 task_processed_id, completed=num_frames_processed, refresh=True
             )
+        threads = []
         for start_frame, end_frame in frames_todo:
-            start_time = time.process_time()
-            start_frame_str = str(start_frame).zfill(len(str(num_frames)))
-            end_frame_str = str(end_frame).zfill(len(str(num_frames)))
-            task_scene_id = progress.add_task(
-                description=f'Scene [green]"{start_frame_str}_{end_frame_str}"[/]',
-                total=end_frame - start_frame,
-                completed=0,
-                refresh=True,
-            )
-            video_writer_params = {"quality": quality}
-            if ffmpeg_params:
-                if "-crf" in ffmpeg_params:
-                    del video_writer_params["quality"]
-                video_writer_params["output_params"] = ffmpeg_params.split()
-            video_writer: FfmpegFormat.Writer = imageio.get_writer(
-                str(
-                    ai_processed_path.joinpath(
-                        f"{start_frame_str}_{end_frame_str}.mp4"
-                    ).absolute()
-                ),
-                fps=fps,
-                macro_block_size=None,
-                **video_writer_params,
-            )
-            duplicated_frames = 0
-            total_duplicated_frames = 0
-            last_frame_ai = None
-            start_duplicated_frame = 0
-            for frame_idx, frame_ai in enumerate(
-                process.video(
-                    input, start_frame - 1, end_frame, ssim, min_ssim, deinterpaint
+            num_lock = 0
+            if multi_gpu:
+                model_device, num_lock = process.get_available_model_device(
+                    first_lock=False
                 )
-            ):
-                current_frame_idx = start_frame + frame_idx
-                video_writer.append_data(frame_ai)
-                if last_frame_ai is not None:
-                    if (last_frame_ai == frame_ai).all():
-                        if duplicated_frames == 0:
-                            start_duplicated_frame = current_frame_idx
-                        duplicated_frames += 1
-                    else:
-                        if duplicated_frames != 0:
-                            start_duplicated_frame_str = str(
-                                start_duplicated_frame
-                            ).zfill(len(str(num_frames)))
-                            end_duplicated_frame_str = str(current_frame_idx - 1).zfill(
-                                len(str(num_frames))
-                            )
-                            log.info(
-                                f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}{'' if duplicated_frames==1 else '-' + end_duplicated_frame_str})"
-                            )
-                            total_duplicated_frames += duplicated_frames
-                            duplicated_frames = 0
+            else:
+                model_device = process.model_devices[0]
+            if multi_gpu:
+                x = Thread(
+                    target=video_thread_func,
+                    args=(
+                        model_device,
+                        num_lock,
+                        multi_gpu,
+                        input,
+                        start_frame,
+                        end_frame,
+                        num_frames,
+                        progress,
+                        task_processed_id,
+                        ai_processed_path,
+                        fps,
+                        quality,
+                        ffmpeg_params,
+                        deinterpaint,
+                        ssim,
+                        min_ssim,
+                        process,
+                        config,
+                        scenes_ini,
+                    ),
+                )
+                threads.append(x)
+                x.start()
+            else:
+                video_thread_func(
+                    model_device,
+                    num_lock,
+                    multi_gpu,
+                    input,
+                    start_frame,
+                    end_frame,
+                    num_frames,
+                    progress,
+                    task_processed_id,
+                    ai_processed_path,
+                    fps,
+                    quality,
+                    ffmpeg_params,
+                    deinterpaint,
+                    ssim,
+                    min_ssim,
+                    process,
+                    config,
+                    scenes_ini,
+                )
+        for thread in threads:
+            thread.join()
 
-                last_frame_ai = frame_ai
-                progress.advance(task_processed_id)
-                progress.advance(task_scene_id)
-            if duplicated_frames != 0:
-                start_duplicated_frame_str = str(start_duplicated_frame).zfill(
-                    len(str(num_frames))
-                )
-                end_duplicated_frame_str = str(end_frame).zfill(len(str(num_frames)))
-                log.info(
-                    f"Detected {duplicated_frames} duplicated frame{'' if duplicated_frames==1 else 's'} ({start_duplicated_frame_str}{'' if duplicated_frames==1 else '-' + end_duplicated_frame_str})"
-                )
-                total_duplicated_frames += duplicated_frames
-                duplicated_frames = 0
-
-            video_writer.close()
-            task_scene = next(
-                task for task in progress.tasks if task.id == task_scene_id
-            )
-
-            config.set(f"{start_frame_str}_{end_frame_str}", "processed", "True")
-            config.set(
-                f"{start_frame_str}_{end_frame_str}",
-                "duplicated_frames",
-                f"{total_duplicated_frames}",
-            )
-            config.set(
-                f"{start_frame_str}_{end_frame_str}",
-                "average_fps",
-                f"{task_scene.finished_speed:.2f}",
-            )
-            with open(scenes_ini, "w") as configfile:
-                config.write(configfile)
-            log.info(
-                f"Frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))} processed in {precisedelta(dt.timedelta(seconds=time.process_time() - start_time))}"
-            )
-            if total_duplicated_frames > 0:
-                total_frames = end_frame - (start_frame - 1)
-                seconds_saved = (
-                    (
-                        (1 / task_scene.finished_speed * total_frames)
-                        - (
-                            total_duplicated_frames * 0.04
-                        )  # 0.04 seconds per duplicate frame
-                    )
-                    / (total_frames - total_duplicated_frames)
-                    * total_duplicated_frames
-                )
-                log.info(
-                    f"Total number of duplicated frames from {str(start_frame).zfill(len(str(num_frames)))} to {str(end_frame).zfill(len(str(num_frames)))}: {total_duplicated_frames} (saved ≈ {precisedelta(dt.timedelta(seconds=seconds_saved))})"
-                )
-            progress.remove_task(task_scene_id)
-
-    video_reader.close()
     with open(
         project_path.joinpath("scene_list.txt"), "w", encoding="utf-8"
     ) as outfile:

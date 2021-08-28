@@ -1,5 +1,7 @@
 import logging
+import time
 from pathlib import Path
+from threading import Lock, Thread
 from typing import Generator, List, Optional, Tuple
 
 import imageio
@@ -355,6 +357,17 @@ default_extras = {
 }
 
 
+class ModelDevice:
+    device: torch.device
+    locks: List[Lock]
+    models: List[Model]
+
+    def __init__(self, device: torch.device, processed_by_device: int = 1) -> None:
+        self.device = device
+        self.locks = [Lock() for _ in range(processed_by_device)]
+        self.models = []
+
+
 class Process:
     def __init__(
         self,
@@ -364,6 +377,8 @@ class Process:
         cpu: bool = False,
         fp16: bool = False,
         device_id: int = 0,
+        multi_gpu: bool = False,
+        processed_by_device: int = 1,
         normalize: bool = False,
     ) -> None:
         self.models_str = models_str
@@ -371,6 +386,7 @@ class Process:
         self.scale = scale
         self.cpu = cpu
         self.fp16 = fp16
+        self.multi_gpu = multi_gpu
         self.normalize = normalize
         self.log = logging.getLogger()
 
@@ -426,35 +442,85 @@ class Process:
             torch.set_default_tensor_type(
                 torch.cuda.HalfTensor if self.gpu else torch.HalfTensor
             )
-        self.device = (
-            torch.device(f"cuda:{device_id}")
-            if torch.cuda.is_available() and self.gpu
-            else torch.device("cpu")
-        )
+        self.model_devices: List[ModelDevice] = []
+        if self.multi_gpu:
+            for i in range(torch.cuda.device_count()):
+                self.model_devices.append(
+                    ModelDevice(
+                        torch.device(f"cuda:{i}"),
+                        processed_by_device=processed_by_device,
+                    )
+                )
+            # Uncomment to use the cpu
+            # self.model_devices.append(
+            #     ModelDevice(
+            #         torch.device("cpu"), processed_by_device=processed_by_device
+            #     )
+            # )
+        else:
+            self.model_devices.append(
+                ModelDevice(
+                    torch.device(f"cuda:{device_id}")
+                    if torch.cuda.is_available() and self.gpu
+                    else torch.device("cpu"),
+                    processed_by_device=processed_by_device,
+                )
+            )
 
         # TODO: chain scales
         self.scale = self.scale if self.scale != -1 else None
         # TODO: chain archs
-        # self.models = []
         self.load_models()
 
     def load_models(self) -> None:
         model_chain, scale_chain = parse_models(self.models_str)
-        self.models = []
-        for mc, sc in zip(model_chain, scale_chain):
-            self.models.append(
-                Model(
-                    mc,
-                    self.arch,
-                    sc,
-                    device=self.device,
-                    meval=self.meval,
-                    strict=self.strict,
-                    chop=self.chop,
+        for model_device in self.model_devices:
+            model_device.models = []
+            for mc, sc in zip(model_chain, scale_chain):
+                model_device.models.append(
+                    Model(
+                        mc,
+                        self.arch,
+                        sc,
+                        device=model_device.device,
+                        meval=self.meval,
+                        strict=self.strict,
+                        chop=self.chop,
+                    )
                 )
-            )
 
-    def image(self, img: np.ndarray, color_correction=False) -> np.ndarray:
+    def get_available_model_device(
+        self, sleep_time: float = 0.25, first_lock: bool = True
+    ) -> Tuple[torch.device, int]:
+        model_device: ModelDevice = None
+        while model_device == None:
+            for md in self.model_devices:
+                num_lock = 0
+                if first_lock:
+                    lock = md.locks[0]
+                else:
+                    lock = None
+                    for n in range(len(md.locks)):
+                        if not md.locks[n].locked():
+                            lock = md.locks[n]
+                            break
+                        num_lock += 1
+                if lock != None and not lock.locked():
+                    model_device = md
+                    lock.acquire()
+                    break
+            if model_device == None:
+                # self.log.warning(f"No GPU available. Waiting...")
+                time.sleep(sleep_time)
+        return model_device, num_lock
+
+    def image(
+        self,
+        img: np.ndarray,
+        color_correction: bool = False,
+        device: torch.device = None,
+        multi_gpu_release_device: bool = True,
+    ) -> np.ndarray:
         # TODO: can pad|resize|crop images to next size accepted by network
         if self.resize:
             img = linear_resize(img, self.resize)
@@ -462,17 +528,28 @@ class Process:
         if self.use_modcrop:
             img = modcrop(img, 4)
 
-        t_img = np2tensor(img, normalize=self.normalize).to(self.device)
+        if device == None:
+            if self.multi_gpu:
+                model_device, _ = self.get_available_model_device()
+            else:
+                model_device = self.model_devices[0]
+        else:
+            model_device = next(md for md in self.model_devices if md.device == device)
+
+        t_img = np2tensor(img, normalize=self.normalize).to(model_device.device)
         t_img = t_img.half() if self.fp16 else t_img
 
         t_out = t_img.clone()
-        for model in self.models:
+        for model in model_device.models:
             t_out = model(t_out)
             if self.use_guided_filter:
                 # note: r can be configured here to control details in results
                 t_out = guided_filter(t_img, t_out, r=1, eps=5e-3)
 
         img_out = tensor2np(t_out.detach(), denormalize=self.normalize)
+
+        if self.multi_gpu and multi_gpu_release_device:
+            model_device.locks[0].release()
 
         if color_correction:
             img_out = color_fix(img, img_out)
@@ -487,6 +564,7 @@ class Process:
         ssim: bool = False,
         min_ssim: float = 0.9987,
         deinterpaint: str = None,
+        device: torch.device = None,
     ) -> Generator[Optional[np.ndarray], None, None]:
         video_reader: FfmpegFormat.Reader = imageio.get_reader(
             str(video_path.absolute())
@@ -508,7 +586,9 @@ class Process:
             ):
                 frame_ai = last_frame_ai
             else:
-                frame_ai = self.image(frame)
+                frame_ai = self.image(
+                    frame, device=device, multi_gpu_release_device=False
+                )
             last_frame = frame
             last_frame_ai = frame_ai
             yield frame_ai
