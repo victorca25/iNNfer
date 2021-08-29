@@ -33,11 +33,13 @@ except ImportError:
 
 try:
     import imageio
+    from decord import cpu  # , gpu
+    from decord import VideoReader
     from imageio.plugins.ffmpeg import FfmpegFormat
 
-    imageio_available = True
+    decord_imageio_available = True
 except ImportError:
-    imageio_available = False
+    decord_imageio_available = False
 
 from model import ModelDevice, Process
 from utils.utils import (
@@ -594,10 +596,11 @@ def video(
     )
     log = logging.getLogger()
 
-    if not imageio_available:
-        raise Exception(
-            "Video processing requires imageio and imageio-ffmpeg packages."
+    if not decord_imageio_available:
+        log.error(
+            "Video processing requires [green]decord[/], [green]imageio[/] and [green]imageio-ffmpeg[/] packages."
         )
+        sys.exit(1)
 
     input = input.resolve()
     output = output.resolve()
@@ -621,10 +624,13 @@ def video(
         processed_by_device=scenes_per_gpu,
     )
 
-    video_reader: FfmpegFormat.Reader = imageio.get_reader(str(input.absolute()))
-    fps = video_reader.get_meta_data()["fps"]
-    num_frames = video_reader.count_frames()
-    video_reader.close()
+    # video_reader: FfmpegFormat.Reader = imageio.get_reader(str(input.absolute()))
+    # fps = video_reader.get_meta_data()["fps"]
+    # num_frames = video_reader.count_frames()
+    # video_reader.close()
+    video_reader = VideoReader(str(input.absolute()), ctx=cpu(0))
+    fps = video_reader.get_avg_fps()
+    num_frames = len(video_reader)
 
     project_path = output.parent.joinpath(f"{output.stem}").absolute()
     ai_processed_path = project_path.joinpath("scenes")
@@ -798,8 +804,10 @@ def video(
         for video_path in ai_processed_path.glob(f"*{output.suffix}"):
             start_frame, end_frame = video_path.stem.split("_")
             num_frames = int(end_frame) - int(start_frame) + 1
-            with imageio.get_reader(str(video_path.absolute())) as video_reader:
-                frames_mp4 = video_reader.count_frames()
+            # with imageio.get_reader(str(video_path.absolute())) as video_reader:
+            #     frames_mp4 = video_reader.count_frames()
+            video_reader = VideoReader(str(video_path.absolute()), ctx=cpu(0))
+            frames_mp4 = len(video_reader)
             if num_frames != frames_mp4:
                 bad_scenes.append(f"{video_path.stem}")
 

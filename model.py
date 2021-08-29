@@ -4,9 +4,11 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Generator, List, Optional, Tuple
 
-import imageio
+# import imageio
 import numpy as np
 import torch
+from decord import cpu  # , gpu
+from decord import VideoReader
 from imageio.plugins.ffmpeg import FfmpegFormat
 from rich import get_console
 
@@ -574,17 +576,23 @@ class Process:
         deinterpaint: str = None,
         device: torch.device = None,
     ) -> Generator[Optional[np.ndarray], None, None]:
-        video_reader: FfmpegFormat.Reader = imageio.get_reader(
-            str(video_path.absolute())
-        )
-        num_frames = video_reader.count_frames()
-        video_reader.set_image_index(start_frame)
+        # video_reader: FfmpegFormat.Reader = imageio.get_reader(
+        #     str(video_path.absolute())
+        # )
+        # num_frames = video_reader.count_frames()
+        # video_reader.set_image_index(start_frame)
+        video_reader = VideoReader(
+            str(video_path.absolute()), ctx=cpu(0)
+        )  # TODO decord gpu
+        num_frames = len(video_reader)
+        video_reader.seek(start_frame)
         end_frame = end_frame or num_frames
 
         last_frame = None
         last_frame_ai = None
         for frame_idx in range(start_frame, end_frame):
-            frame = video_reader.get_next_data()
+            # frame = video_reader.get_next_data()
+            frame = video_reader.next().asnumpy()
             if deinterpaint is not None:
                 for i in range(0 if deinterpaint == "even" else 1, frame.shape[0], 2):
                     frame[i : i + 1] = (0, 255, 0)  # (B, G, R)
