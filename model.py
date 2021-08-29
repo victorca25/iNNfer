@@ -294,7 +294,7 @@ def parse_models(
     return full_chain, scales_list
 
 
-def check_model_path(model_path: str, all_models: List[Path] = None):
+def check_model_path(model_path: str, all_models: List[Path] = None) -> Path:
     # check if model exists in absolute path or ./models
     if not Path(model_path).is_file():
         model_path_a = Path("models").joinpath(model_path)
@@ -315,7 +315,7 @@ def check_model_path(model_path: str, all_models: List[Path] = None):
                 raise ValueError(f"Model {model_path} not found.")
         else:
             model_path = model_path_a
-    return model_path
+    return Path(model_path)
 
 
 def get_scale_name(model_path: Path, scale=None) -> Optional[int]:
