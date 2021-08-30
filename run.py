@@ -76,13 +76,14 @@ def image_thread_func(
     save_img_path: Path,
     process: Process,
     progress: Progress,
+    model_name: str,
     task_processing: TaskID,
 ):
     img_out = process.image(img, color_correction=color_correction, device=device)
 
     # save images
     if comp:
-        save_img_comp([img, img_out], save_img_path)
+        save_img_comp([img, img_out], save_img_path, model_name=model_name)
     else:
         save_img(img_out, save_img_path)
 
@@ -245,6 +246,8 @@ def image(
         log.error(e)
         sys.exit(1)
 
+    model_name = ">".join([m.model_path.name for m in process.model_devices[0].models])
+
     with Progress(
         "[progress.description]{task.description}",
         BarColumn(),
@@ -300,6 +303,7 @@ def image(
                         save_img_path,
                         process,
                         progress,
+                        model_name,
                         task_processing,
                     ),
                 )
@@ -314,6 +318,7 @@ def image(
                     save_img_path,
                     process,
                     progress,
+                    model_name,
                     task_processing,
                 )
 

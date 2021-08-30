@@ -49,7 +49,7 @@ class nullcast:
 class Model:
     def __init__(
         self,
-        model_path,
+        model_path: Path,
         arch=None,
         scale=None,
         in_nc: int = 3,
@@ -484,6 +484,7 @@ class Process:
 
     def load_models(self) -> None:
         model_chain, scale_chain = parse_models(self.models_str)
+        # self.model_chain = model_chain
         for model_device in self.model_devices:
             model_device.models = []
             for mc, sc in zip(model_chain, scale_chain):

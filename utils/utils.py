@@ -139,13 +139,48 @@ def merge_imgs(img_list: List[np.ndarray]) -> np.ndarray:
         )
 
 
-def save_img_comp(img_list: List[np.ndarray], img_path: Path, mode="RGB"):
+def save_img_comp(
+    img_list: List[np.ndarray], img_path: Path, mode: str = "RGB", model_name: str = ""
+):
     """Create a side by side comparison of multiple images in a list
     to save to a defined path
     """
     # lr_resized = cv2.resize(lr_img, (sr_img.shape[1], sr_img.shape[0]), interpolation=cv2.INTER_NEAREST)
     # comparison = cv2.hconcat([lr_resized, sr_img])
     comparison = merge_imgs(img_list)
+
+    if model_name != "":
+        width = comparison.shape[1]
+        height = 36
+        img = np.zeros((height, width, 3), np.uint8)
+        img.fill(255)  # black image
+
+        font_scale = 0.6
+        thickness = 1
+        width_text, height_text = cv2.getTextSize(
+            model_name, cv2.FONT_HERSHEY_DUPLEX, font_scale, thickness
+        )[0]
+        x = (width - width_text) // 2
+        y = (height - height_text) // 2 + height_text
+        while x < 0:
+            font_scale -= 0.01
+            width_text, height_text = cv2.getTextSize(
+                model_name, cv2.FONT_HERSHEY_DUPLEX, font_scale, thickness
+            )[0]
+            x = (width - width_text) // 2
+
+        cv2.putText(
+            img,
+            model_name,
+            (x, y),
+            cv2.FONT_HERSHEY_DUPLEX,
+            font_scale,
+            (0, 0, 0),  # (B, G, R)
+            thickness=thickness,
+            lineType=cv2.LINE_AA,
+        )
+        comparison = cv2.vconcat([comparison, img])
+
     save_img(img=comparison, img_path=img_path, mode=mode)
 
 
