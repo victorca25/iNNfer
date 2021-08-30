@@ -151,23 +151,28 @@ def save_img_comp(
 
     if model_name != "":
         width = comparison.shape[1]
-        height = 36
-        img = np.zeros((height, width, 3), np.uint8)
-        img.fill(255)  # black image
-
-        font_scale = 0.6
+        font_scale = 0.5
         thickness = 1
         width_text, height_text = cv2.getTextSize(
             model_name, cv2.FONT_HERSHEY_DUPLEX, font_scale, thickness
         )[0]
+        while width_text / width < 0.4 and font_scale < 0.9:
+            font_scale += 0.01
+            width_text, height_text = cv2.getTextSize(
+                model_name, cv2.FONT_HERSHEY_DUPLEX, font_scale, 1
+            )[0]
         x = (width - width_text) // 2
-        y = (height - height_text) // 2 + height_text
         while x < 0:
             font_scale -= 0.01
             width_text, height_text = cv2.getTextSize(
                 model_name, cv2.FONT_HERSHEY_DUPLEX, font_scale, thickness
             )[0]
             x = (width - width_text) // 2
+        height = int(height_text * 2)
+        y = (height - height_text) // 2 + height_text
+
+        img = np.zeros((height, width, 3), np.uint8)
+        img.fill(255)  # white bg image
 
         cv2.putText(
             img,
