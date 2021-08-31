@@ -292,35 +292,26 @@ def image(
                 )
             )
 
+            image_thread_func_args = {
+                "img": img,
+                "device": model_device.device,
+                "color_correction": color_correction,
+                "comp": comp,
+                "save_img_path": save_img_path,
+                "process": process,
+                "progress": progress,
+                "model_name": model_name,
+                "task_processing": task_processing,
+            }
             if multi_gpu:
                 x = Thread(
                     target=image_thread_func,
-                    args=(
-                        img,
-                        model_device.device,
-                        color_correction,
-                        comp,
-                        save_img_path,
-                        process,
-                        progress,
-                        model_name,
-                        task_processing,
-                    ),
+                    kwargs=image_thread_func_args,
                 )
                 threads.append(x)
                 x.start()
             else:
-                image_thread_func(
-                    img,
-                    model_device.device,
-                    color_correction,
-                    comp,
-                    save_img_path,
-                    process,
-                    progress,
-                    model_name,
-                    task_processing,
-                )
+                image_thread_func(**image_thread_func_args)
 
             if delete_input:
                 img_path.unlink(missing_ok=True)
@@ -713,57 +704,34 @@ def video(
                 )
             else:
                 model_device = process.model_devices[0]
+            video_thread_func_args = {
+                "model_device": model_device,
+                "num_lock": num_lock,
+                "multi_gpu": multi_gpu,
+                "input": input,
+                "output": output,
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+                "num_frames": num_frames,
+                "progress": progress,
+                "task_processed_id": task_processed_id,
+                "ai_processed_path": ai_processed_path,
+                "fps": fps,
+                "quality": quality,
+                "ffmpeg_params": ffmpeg_params,
+                "deinterpaint": deinterpaint,
+                "ssim": ssim,
+                "min_ssim": min_ssim,
+                "process": process,
+                "config": config,
+                "scenes_ini": scenes_ini,
+            }
             if multi_gpu:
-                x = Thread(
-                    target=video_thread_func,
-                    args=(
-                        model_device,
-                        num_lock,
-                        multi_gpu,
-                        input,
-                        output,
-                        start_frame,
-                        end_frame,
-                        num_frames,
-                        progress,
-                        task_processed_id,
-                        ai_processed_path,
-                        fps,
-                        quality,
-                        ffmpeg_params,
-                        deinterpaint,
-                        ssim,
-                        min_ssim,
-                        process,
-                        config,
-                        scenes_ini,
-                    ),
-                )
+                x = Thread(target=video_thread_func, kwargs=video_thread_func_args)
                 threads.append(x)
                 x.start()
             else:
-                video_thread_func(
-                    model_device,
-                    num_lock,
-                    multi_gpu,
-                    input,
-                    output,
-                    start_frame,
-                    end_frame,
-                    num_frames,
-                    progress,
-                    task_processed_id,
-                    ai_processed_path,
-                    fps,
-                    quality,
-                    ffmpeg_params,
-                    deinterpaint,
-                    ssim,
-                    min_ssim,
-                    process,
-                    config,
-                    scenes_ini,
-                )
+                video_thread_func(**video_thread_func_args)
         for thread in threads:
             thread.join()
 
