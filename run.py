@@ -304,11 +304,9 @@ def image(
                 "task_processing": task_processing,
             }
             if multi_gpu:
-                x = Thread(
-                    target=image_thread_func,
-                    kwargs=image_thread_func_args,
-                )
+                x = Thread(target=image_thread_func, kwargs=image_thread_func_args)
                 threads.append(x)
+                x.daemon = True
                 x.start()
             else:
                 image_thread_func(**image_thread_func_args)
@@ -729,6 +727,7 @@ def video(
             if multi_gpu:
                 x = Thread(target=video_thread_func, kwargs=video_thread_func_args)
                 threads.append(x)
+                x.daemon = True
                 x.start()
             else:
                 video_thread_func(**video_thread_func_args)
