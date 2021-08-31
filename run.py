@@ -359,8 +359,7 @@ def video_thread_func(
             del video_writer_params["quality"]
         video_writer_params["output_params"] = ffmpeg_params.split()
     if output.suffix == ".gif":
-        del video_writer_params["quality"]
-        del video_writer_params["macro_block_size"]
+        video_writer_params = {}
     video_writer: FfmpegFormat.Writer = imageio.get_writer(
         str(
             ai_processed_path.joinpath(
