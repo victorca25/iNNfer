@@ -7,5 +7,6 @@ numpy
 opencv_python
 rawpy
 rich
+scenedetect[opencv]
 scikit-image
 torch
