@@ -23,6 +23,8 @@ from rich.progress import (
 from rich.text import Text
 from rich.traceback import install as install_traceback
 
+from utils.video import find_scenes
+
 try:
     import datetime as dt
     from humanize.time import precisedelta
@@ -560,6 +562,9 @@ def video_thread_func(
     help="De-interlacing by in-painting. Fills odd or even rows with green (#00FF00). Useful for models like Joey's 1x_DeInterPaint.",
 )
 @click.option(
+    "-ds", "--detect-scenes", is_flag=True, help="Detect scenes using PySceneDetect"
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -579,6 +584,7 @@ def video(
     ssim: bool,
     min_ssim: float,
     deinterpaint: str,
+    detect_scenes: bool,
     verbose: bool,
 ):
     logging.basicConfig(
@@ -643,16 +649,20 @@ def video(
                 frames_todo.append((int(start_frame), int(end_frame)))
     else:
         resume_mode = False
-        scenes = []
+        scenes: List[Tuple[int, int]] = []
         with get_console().status("Dividing the video into scenes..."):
-            last_scene_frame = 0
-            for i in range(250, num_frames, 250):
-                scenes.append((last_scene_frame + 1, i))
-                last_scene_frame = i
-            if len(scenes) == 0:
-                scenes.append((1, num_frames))
-            if last_scene_frame != num_frames:
-                scenes.append((last_scene_frame + 1, num_frames))
+            if detect_scenes:
+                for s in find_scenes(str(input.absolute())):
+                    scenes.append((s[0].get_frames() + 1, s[1].get_frames()))
+            else:
+                last_scene_frame = 0
+                for i in range(250, num_frames, 250):
+                    scenes.append((last_scene_frame + 1, i))
+                    last_scene_frame = i
+                if len(scenes) == 0:
+                    scenes.append((1, num_frames))
+                if last_scene_frame != num_frames:
+                    scenes.append((last_scene_frame + 1, num_frames))
 
         log.info(
             f"Video divided into {len(scenes)} scene{'' if len(scenes)==1 else 's'}."
