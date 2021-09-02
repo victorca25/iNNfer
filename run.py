@@ -809,7 +809,7 @@ def video(
         )
         print(
             Markdown(
-                f"`ffmpeg -f concat -safe 0 -i scene_list.txt -c copy {output.name}`"
+                f"`ffmpeg -f concat -safe 0 -i scene_list.txt -i {input.absolute()} -map 0:v -map 1:a -c copy {output.name}`"
             )
         )
 
