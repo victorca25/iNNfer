@@ -181,6 +181,12 @@ def image_thread_func(
     default=0,
     help="The numerical ID of the GPU you want to use.",
 )
+@click.option(
+    "-cmsd",
+    "--cache-max-split-depth",
+    is_flag=True,
+    help="Caches the maximum recursion depth used by the split/merge function. Useful only when upscaling images of the same size.",
+)
 @click.option("-mg", "--multi-gpu", is_flag=True, help="Multi GPU.")
 @click.option(
     "--norm",
@@ -217,6 +223,7 @@ def image(
     cpu: bool,
     fp16: bool,
     device_id: int,
+    cache_max_split_depth:bool,
     multi_gpu: bool,
     norm: bool,
     skip_existing: bool,
@@ -238,6 +245,7 @@ def image(
         cpu,
         fp16=fp16,
         device_id=device_id,
+        cache_max_split_depth=cache_max_split_depth,
         multi_gpu=multi_gpu,
         normalize=norm,
     )

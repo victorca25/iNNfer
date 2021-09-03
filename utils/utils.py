@@ -1,9 +1,11 @@
+import gc
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from skimage.metrics import structural_similarity as get_ssim
 
@@ -876,3 +878,96 @@ def get_img_chunks(img: np.ndarray, chunk_size=16) -> Dict[str, np.ndarray]:
         for c in range(0, img.shape[1], chunk_size):
             chunks[f"{r}_{c}"] = img[r : r + chunk_size, c : c + chunk_size, :]
     return chunks
+
+
+def auto_split_process(
+    lr_img: torch.Tensor,
+    model,
+    scale: int = 4,
+    overlap: int = 32,
+    max_depth: int = None,
+    current_depth: int = 1,
+) -> Tuple[torch.Tensor, int]:
+    # Original code: https://github.com/JoeyBallentine/ESRGAN/blob/master/utils/dataops.py
+
+    # Attempt to upscale if unknown depth or if reached known max depth
+    if max_depth is None or max_depth == current_depth:
+        try:
+            result = model(lr_img)
+            return result, current_depth
+        except RuntimeError as e:
+            # Check to see if its actually the CUDA out of memory error
+            if "allocate" in str(e):
+                # Collect garbage (clear VRAM)
+                torch.cuda.empty_cache()
+                gc.collect()
+            # Re-raise the exception if not an OOM error
+            else:
+                raise RuntimeError(e)
+
+    b, c, h, w = lr_img.shape
+
+    # Split image into 4ths
+    top_left = lr_img[..., : h // 2 + overlap, : w // 2 + overlap]
+    top_right = lr_img[..., : h // 2 + overlap, w // 2 - overlap :]
+    bottom_left = lr_img[..., h // 2 - overlap :, : w // 2 + overlap]
+    bottom_right = lr_img[..., h // 2 - overlap :, w // 2 - overlap :]
+
+    # Recursively upscale the quadrants
+    # After we go through the top left quadrant, we know the maximum depth and no longer need to test for out-of-memory
+    top_left_rlt, depth = auto_split_process(
+        top_left,
+        model,
+        scale=scale,
+        overlap=overlap,
+        current_depth=current_depth + 1,
+    )
+    top_right_rlt, _ = auto_split_process(
+        top_right,
+        model,
+        scale=scale,
+        overlap=overlap,
+        max_depth=depth,
+        current_depth=current_depth + 1,
+    )
+    bottom_left_rlt, _ = auto_split_process(
+        bottom_left,
+        model,
+        scale=scale,
+        overlap=overlap,
+        max_depth=depth,
+        current_depth=current_depth + 1,
+    )
+    bottom_right_rlt, _ = auto_split_process(
+        bottom_right,
+        model,
+        scale=scale,
+        overlap=overlap,
+        max_depth=depth,
+        current_depth=current_depth + 1,
+    )
+
+    # Define output shape
+    out_h = h * scale
+    out_w = w * scale
+
+    # Create blank output image
+    output_img = torch.empty(
+        (b, c, out_h, out_w), dtype=lr_img.dtype, device=lr_img.device
+    )
+
+    # Fill output image with tiles, cropping out the overlaps
+    output_img[..., : out_h // 2, : out_w // 2] = top_left_rlt[
+        ..., : out_h // 2, : out_w // 2
+    ]
+    output_img[..., : out_h // 2, -out_w // 2 :] = top_right_rlt[
+        ..., : out_h // 2, -out_w // 2 :
+    ]
+    output_img[..., -out_h // 2 :, : out_w // 2] = bottom_left_rlt[
+        ..., -out_h // 2 :, : out_w // 2
+    ]
+    output_img[..., -out_h // 2 :, -out_w // 2 :] = bottom_right_rlt[
+        ..., -out_h // 2 :, -out_w // 2 :
+    ]
+
+    return output_img, depth

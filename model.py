@@ -16,6 +16,7 @@ from architectures import get_network
 from utils.defaults import get_network_G_config
 from utils.utils import (
     are_same_imgs,
+    auto_split_process,
     color_fix,
     extract_patches_2d,
     get_images_paths,
@@ -387,6 +388,7 @@ class Process:
         cpu: bool = False,
         fp16: bool = False,
         device_id: int = 0,
+        cache_max_split_depth: bool = False,
         multi_gpu: bool = False,
         processed_by_device: int = 1,
         normalize: bool = False,
@@ -396,8 +398,10 @@ class Process:
         self.scale = scale
         self.cpu = cpu
         self.fp16 = fp16
+        self.cache_max_split_depth = cache_max_split_depth
         self.multi_gpu = multi_gpu
         self.normalize = normalize
+        self.last_scale = 1
         self.log = logging.getLogger()
 
         torch.backends.cudnn.benchmark = True
@@ -499,6 +503,7 @@ class Process:
                         chop=self.chop,
                     )
                 )
+                self.last_scale = sc
 
     def get_available_model_device(
         self, sleep_time: float = 0.25, first_lock: bool = True
@@ -551,8 +556,22 @@ class Process:
         t_img = t_img.half() if self.fp16 else t_img
 
         t_out = t_img.clone()
-        for model in model_device.models:
-            t_out = model(t_out)
+
+        # Store the maximum split depths for each model in the chain
+        split_depths = {}
+
+        for i, model in enumerate(model_device.models):
+            if self.cache_max_split_depth and len(split_depths.keys()) > 0:
+                t_out, depth = auto_split_process(
+                    t_out,
+                    model,
+                    self.last_scale,
+                    max_depth=split_depths[i],
+                )
+            else:
+                t_out, depth = auto_split_process(t_out, model, self.last_scale)
+                split_depths[i] = depth
+
             if self.use_guided_filter:
                 # note: r can be configured here to control details in results
                 t_out = guided_filter(t_img, t_out, r=1, eps=5e-3)
