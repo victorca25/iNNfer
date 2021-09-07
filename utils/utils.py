@@ -718,3 +718,31 @@ def swa2normal(state_dict):
         state_dict = crt_net
 
     return state_dict
+
+
+def infer_unshuffle(in_nc=None):
+    if in_nc in (1, 3):
+        return None
+
+    unshuffle_scale = None
+
+    # try with 3 ch
+    scale_sq = in_nc / 3
+    scale = np.sqrt(scale_sq)
+    if scale % 8 == 0:
+        unshuffle_scale = 8
+    elif scale % 4 == 0:
+        unshuffle_scale = 4
+    elif scale % 2 == 0:
+        unshuffle_scale = 2
+    else:
+        # try with 1 ch
+        scale = np.sqrt(in_nc)
+        if scale % 8 == 0:
+            unshuffle_scale = 8
+        elif scale % 4 == 0:
+            unshuffle_scale = 4
+        elif scale % 2 == 0:
+            unshuffle_scale = 2
+
+    return unshuffle_scale

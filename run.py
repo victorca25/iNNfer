@@ -5,9 +5,11 @@ import torch
 from utils.utils import (mod2normal, get_models_paths, get_images_paths,
                     read_img, np2tensor, tensor2np, color_fix, save_img,
                     save_img_comp, extract_patches_2d, recompose_tensor,
-                    linear_resize, swa2normal, guided_filter, modcrop)
+                    linear_resize, swa2normal, guided_filter, modcrop,
+                    infer_unshuffle)
 from utils.defaults import get_network_G_config
 from architectures import get_network
+from architectures.block import space_to_depth
 
 
 class nullcast():
@@ -46,6 +48,11 @@ class Model:
             # convert from SWA to regular model if needed
             if 'n_averaged' in state_dict:
                 state_dict = swa2normal(state_dict)
+
+            self.in_nc = state_dict[list(state_dict)[0]].shape[1]
+            self.unshuffle_scale = infer_unshuffle(self.in_nc)
+            if self.unshuffle_scale is not None:
+                self.chop = False
 
             if self.arch == 'infer':
                 if 'SCPA_trunk.0.conv1_a.weight' in state_dict:
@@ -216,6 +223,8 @@ class Model:
                 data=data,)
         else:
             with self.get_torch_ctx():
+                if self.unshuffle_scale is not None:
+                    data = space_to_depth(data, self.unshuffle_scale)
                 t_out = self.model(data)
             if self.arch == 'ppon':
                 t_out = t_out[2]
