@@ -471,8 +471,37 @@ def upconv_block(
     return sequential(upsample, conv)
 
 
+def space_to_depth(x, bs:int=2):
+    """ Pixel unshuffle (PyTorch).
+    This is the inverse of torch.nn.PixelShuffle().
+    Equivalent to nn.PixelUnshuffle().
+    Args:
+        x (Tensor): Input tensor (b, c, h, w).
+        bs: block_size, scale factor.
+    Returns:
+        Tensor: tensor after pixel unshuffle.
+    """
+    assert bs >= 1 and isinstance(bs, int)
+    if bs == 1:
+        return x
+
+    b, c, h, w = x.size()
+    assert h % bs == 0 and w % bs == 0, "{}".format((h, w, bs))
+    new_d = -1  # c * (bs**2)
+    new_h = h // bs
+    new_w = w // bs
+
+    # (b, c, h//bs, bs, w//bs, bs)
+    x = x.view(b, c, new_h, bs, new_w, bs)
+    # (b, c, bs, bs, h//bs, w//bs)
+    x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+    # (b, c*bs^2, h//bs, w//bs)
+    return x.view(b, new_d, new_h, new_w)
+
+
 # PPON
-def conv_layer(in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1):
+def conv_layer(in_channels, out_channels, kernel_size,
+    stride=1, dilation=1, groups=1):
     padding = int((kernel_size - 1) / 2) * dilation
     return nn.Conv2d(
         in_channels,

@@ -13,6 +13,7 @@ from imageio.plugins.ffmpeg import FfmpegFormat
 from rich import get_console
 
 from architectures import get_network
+from architectures.block import space_to_depth
 from utils.defaults import get_network_G_config
 from utils.utils import (
     are_same_imgs,
@@ -22,6 +23,7 @@ from utils.utils import (
     get_images_paths,
     get_models_paths,
     guided_filter,
+    infer_unshuffle,
     linear_resize,
     mod2normal,
     modcrop,
@@ -84,6 +86,11 @@ class Model:
             # convert from SWA to regular model if needed
             if "n_averaged" in state_dict:
                 state_dict = swa2normal(state_dict)
+
+            self.in_nc = state_dict[list(state_dict)[0]].shape[1]
+            self.unshuffle_scale = infer_unshuffle(self.in_nc)
+            if self.unshuffle_scale is not None:
+                self.chop = False
 
             if self.arch == "infer":
                 if "SCPA_trunk.0.conv1_a.weight" in state_dict:
@@ -259,6 +266,8 @@ class Model:
             )
         else:
             with self.get_torch_ctx():
+                if self.unshuffle_scale is not None:
+                    data = space_to_depth(data, self.unshuffle_scale)
                 t_out = self.model(data)
             if self.arch == "ppon":
                 t_out = t_out[2]
