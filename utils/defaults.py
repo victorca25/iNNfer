@@ -32,6 +32,11 @@ def get_network_G_config(network_G: Dict[str, str], scale: int) -> dict:
                 "nf", 32
             )  # number of filters in the first conv layer
             full_network_G["nb"] = network_G.pop("nb", 12)  # number of RRDB blocks
+        elif kind_G in ('esrgan-anime-lite', 'esrgan-mid'):
+            full_network_G['nf'] = network_G.pop(
+                'nf', 64
+            )  # number of filters in the first conv layer
+            full_network_G['nb'] = network_G.pop('nb', 6)  # number of RRDB blocks
         else:
             full_network_G["nf"] = network_G.pop(
                 "nf", 64
