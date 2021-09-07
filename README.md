@@ -164,6 +164,11 @@ And you will obtain a version of the upscale that more closely matches the color
 This flag will work, even if multiple models are chained.
 
 
+### Pixel-Unshuffle
+
+Models with Super-Resolution architectures that have been trained using [pixel unshuffle](https://github.com/victorca25/traiNNer/blob/master/docs/unshuffle.md) are also supported. The unshuffle scale will be detected automatically from the model, no change is necessary. The Real-ESRGAN models are also compatible, as long as the [converted](https://drive.google.com/drive/folders/11Vg7l-WItpdTneg-l5heHgwW-DecdRbA?usp=sharing) versions are used.
+
+
 # How to help
 
 There are multiple ways to help this project. The first one is by using it and trying to produce results with your models. You can open an [issue](https://github.com/victorca25/iNNfer/issues) if you find any bugs or if you have ideas or questions.
