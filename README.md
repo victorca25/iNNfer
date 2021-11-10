@@ -10,17 +10,17 @@ Below is a (non-comprehensive) list of features currently available in the proje
 
 -   Support for all super-resolution and restoration models available in traiNNer, like: `ESRGAN` (`RRDB`, both original and modified architectures), `SRGAN` (`SRResNet`), `PPON`, and `PAN`. (`SRFlow` is pending).
 -   "Chop forward" option, to automatically divide large images to smaller crops to prevent `CUDA` errors due to exhausted `VRAM`.
--   Automatic inference of model scale, either from the model name (for example: `4x_PPON_CGP4.pth` will be interpreted as scale `4`) or from the network configuration (currently only for `ESRGAN` and `SRGAN`, others planned). If the scale cannot be infered, you can use the scale flag with the scale factor, like: `-scale 4`.
+-   Automatic inference of model scale, either from the model name (for example: `4x_PPON_CGP4.pth` will be interpreted as scale `4`) or from the network configuration (currently only for `ESRGAN` and `SRGAN`, others planned). If the scale cannot be infered, you can use the scale flag with the scale factor, like: `--scale 4`.
 -   Automatic inference of model architecture (for super-resolution and restoration at the moment, others planned). Meaning that, for example, `ESRGAN`, `PPON` and `PAN` models can be chained with no additional requirement. The exact architecture can also be provided, specially if not using a default network configuration.
 -   Model chaining, to pass the input images through a sequence of models.
 -   Direct support for Stochastic Weight Averaging (SWA) models. Will automatically be converted to a regular model.
 -   Support for image to image translation models: `pix2pix` (`UNet`), `CycleGAN` (`ResNet`) `wbc` (`WBCUnet`).
--   Support for `TorchScript` models. Use flag `-arch ts` (can't be chained yet).
--   Automatic color correction, for models that modify the color hues when applied. Use flag `-cf`.
--   Use of `fp16` format to reduce memory requirements. Technically, this operates with less accuracy than the default `fp32`, but for all tests so far, the errors were imperceptible. If you suspect any issue, fp16 can be disabled with the `-no_fp16` flag.
--   Runs on NVidia GPUs if available by default or on CPU. Can also force to CPU with the flag `-cpu`.
+-   Support for `TorchScript` models. Use flag `--arch ts` (can't be chained yet).
+-   Automatic color correction, for models that modify the color hues when applied. Use flag `--color-fix` or `-cf`.
+-   Use of `fp16` format to reduce memory requirements. Technically, this operates with less accuracy than the default `fp32`, but for all tests so far, the errors were imperceptible. To activate it simply add `--fp16` flag.
+-   Runs on NVidia GPUs if available by default or on CPU. Can also force to CPU with the flag `--cpu`.
 -   Partial model name support. You don't need to use the models' full names, only part of the name that identifies it as different from others.
--   Option to do a side by side comparison of the input images to the output results with the `-comp` flag.
+-   Option to do a side by side comparison of the input images to the output results with the `--comp` flag.
 
 ## Planned features
 
@@ -41,7 +41,7 @@ As an example, if you want to use the `Fatality` model from the database, you wi
 Once there and with the input images ready, you can run obtain the results simply by running:
 
 ```bash
-python run.py -m fatal
+python run.py image fatal
 ```
 
 And the results will be saved in `./output/`.
@@ -50,10 +50,10 @@ And the results will be saved in `./output/`.
 
 ### Model chaining
 
-To chain multiple models, you need to provide a sequence of model names to the `-m` flag. For example, to first remove JPEG artifacts and then upscale images, you can fetch one of the JPEG denoising models from the database (Example: `1x_JPEG_60-80.pth`) and an upscaling model (Example: `4x_Fatality_01_265000_G.pth`) and use a plus sign (`+`) between their names.
+To chain multiple models, you need to provide a sequence of model names to the `image` flag. For example, to first remove JPEG artifacts and then upscale images, you can fetch one of the JPEG denoising models from the database (Example: `1x_JPEG_60-80.pth`) and an upscaling model (Example: `4x_Fatality_01_265000_G.pth`) and use a plus sign (`+`) between their names.
 
 ```bash
-python run.py -m jpeg+fatal
+python run.py image jpeg+fatal
 ```
 
 Note that there's technically no limit to how many models can be chained, but if the models are for upscaling, image sizes can become impossible to manage in memory. This is mostly a hardware limitation. You can also chain the same model multiple times to the images, which can produce interesting results in some cases.
@@ -65,7 +65,7 @@ For these cases, for now you'll need to provide the network architecture used to
 For example, to try out the `label2facade` model (`facades_label2photo.pth`), you need to run:
 
 ```bash
-python run.py -m facade -a p2p_256
+python run.py image facade -a p2p_256
 ```
 
 This will produce a single result:
@@ -74,10 +74,10 @@ This will produce a single result:
    <img src="https://user-images.githubusercontent.com/41912303/121805922-bbc91e00-cc4d-11eb-8961-accdd7eb4269.png" height="200">
 </p>
 
-For a side by side comparison between input and output, add the `-comp` flag:
+For a side by side comparison between input and output, add the `--comp` flag:
 
 ```bash
-python run.py -m facade -a p2p_256 -comp
+python run.py image facade -a p2p_256 --comp
 ```
 
 <p align="center">
@@ -87,7 +87,7 @@ python run.py -m facade -a p2p_256 -comp
 Similarly, to test the `ukiyoe` CycleGAN model (either `photo2ukiyoe.pth` or `style_ukiyoe.pth`), with a comparison run:
 
 ```bash
-python run.py -m ukiyoe -a cg_9 -comp
+python run.py image ukiyoe -a cg_9 --comp
 ```
 
 <p align="center">
@@ -126,7 +126,7 @@ TorchScript models are directly supported, just be aware that these models need 
 For example, to use the `4xRealSR_DF2K_JPEG.pt` model, just execute:
 
 ```bash
-python run.py -m realsr
+python run.py image realsr
 ```
 
 One of the advantages these TorchScript models have is that they no longer require explicit support of the network architecture, so you could use any model of any architecture that has been converted to TorchScript with this code, even if the architecture is not supported. This is useful if you need to use other features like the color correction.
@@ -139,7 +139,7 @@ Some models introduce color changes that may not be desired. For that reason, th
 Using an example image from the [Manga109](http://www.manga109.org/ja/index.html) set, with a model that intentionally introduces heavy color changes, run:
 
 ```bash
-python run.py -m shin -comp
+python run.py image shin --comp
 ```
 
 And this produces this result:
@@ -149,10 +149,10 @@ And this produces this result:
 </p>
 
 
-To try to fix the colors, only add the color fix flag `-cf`, like:
+To try to fix the colors, only add the color fix flag `--color-fix` or `-cf`, like:
 
 ```bash
-python run.py -m shin -comp -cf
+python run.py image shin --comp -cf
 ```
 
 And you will obtain a version of the upscale that more closely matches the colors of the original image:
