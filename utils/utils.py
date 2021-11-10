@@ -903,7 +903,7 @@ def auto_split_process(
             return result, current_depth
         except RuntimeError as e:
             # Check to see if its actually the CUDA out of memory error
-            if "allocate" in str(e):
+            if "allocate" in str(e) or "CUDA out of memory" in str(e):
                 # Collect garbage (clear VRAM)
                 torch.cuda.empty_cache()
                 gc.collect()
